@@ -1,0 +1,22 @@
+{
+  "name": "create-pane",
+  "version": "0.0.1",
+  "description": "Create a Pane app — dynamic workspace for human-agent collaboration",
+  "type": "module",
+  "bin": {
+    "create-pane": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

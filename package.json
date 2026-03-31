@@ -1,0 +1,22 @@
+{
+  "name": "pane",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Dynamic workspace layer for human-agent collaboration",
+  "license": "MIT",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "test": "turbo test",
+    "typecheck": "turbo typecheck",
+    "clean": "turbo clean",
+    "test:visual": "npx playwright test",
+    "eval:visual": "npx tsx scripts/visual-eval.ts"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "playwright": "^1.58.2",
+    "turbo": "^2.9.0"
+  }
+}
