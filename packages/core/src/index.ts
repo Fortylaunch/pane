@@ -29,7 +29,7 @@ export type { PaneRuntimeConfig, SessionListener, VisualEvalConfig } from './run
 // Connectors
 export { httpAgent } from './connectors/http.js'
 export { wsAgent } from './connectors/ws.js'
-export { claudeAgent, createClaudePlanCall, createClaudeSectionCall } from './connectors/claude.js'
+export { claudeAgent, createClaudePlanCall, createClaudeSectionCall, createClaudeDesignReview } from './connectors/claude.js'
 export type { HttpConnectorConfig, WsConnectorConfig, ClaudeConnectorConfig, PaneRequest, PaneResponse, PaneStreamChunk } from './connectors/types.js'
 
 // Visual Feedback

@@ -31,12 +31,31 @@ export interface VisualEvalConfig {
   enabled?: boolean
 }
 
+/**
+ * Pre-render design review loop.
+ * After the agent generates a view, send the spec to a design reviewer.
+ * If issues are found, feed them back to the agent to fix. Iterate
+ * until approved or maxRounds is reached. Optionally validate the
+ * final render via Playwright screenshot.
+ */
+export interface DesignReviewConfig {
+  /** Function that reviews a session spec and returns findings (empty = approved) */
+  reviewCall: (session: PaneSession) => Promise<string[]>
+  /** Function that captures + validates the rendered output (optional) */
+  validateRender?: () => Promise<{ passed: boolean; issues: string[] }>
+  /** Max review rounds before showing to user (default: 2) */
+  maxRounds?: number
+  /** Enabled (default: false) */
+  enabled?: boolean
+}
+
 export interface PaneRuntimeConfig {
   agent: PaneAgent
   tickInterval?: number     // ms — how often to call agent.tick(). 0 = disabled.
   visualEval?: VisualEvalConfig  // post-render visual evaluation
   specEvalEnabled?: boolean // 6D spec eval after each response (default: false)
   decompose?: DecomposeConfig   // request decomposition for complex views
+  designReview?: DesignReviewConfig // pre-render design review loop
 }
 
 export type SessionListener = (session: PaneSession) => void
@@ -56,6 +75,7 @@ export class PaneRuntime {
   private _visualEvalEnabled = false
   private decomposeConfig: DecomposeConfig | null = null
   private designFeedback: string[] = []
+  private designReview: DesignReviewConfig | null = null
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
@@ -63,6 +83,7 @@ export class PaneRuntime {
     this.specEvalEnabled = config.specEvalEnabled ?? false
     this._visualEvalEnabled = config.visualEval?.enabled ?? false
     this.decomposeConfig = config.decompose ?? null
+    this.designReview = config.designReview ?? null
     this.actions = new ActionManager()
     this.feedbackStore = new FeedbackStore()
 
@@ -185,6 +206,11 @@ export class PaneRuntime {
       if (this.specEvalEnabled) this.runSpecEval(update, dur)
     }
 
+    // Design review loop — iterate spec with council before user sees it
+    if (this.designReview?.enabled) {
+      await this.runDesignReviewLoop(input, sessionForAgent)
+    }
+
     // Trigger visual eval AFTER render — runs async, doesn't block the return
     if (this._visualEvalEnabled) {
       this.runVisualEval()
@@ -270,6 +296,14 @@ export class PaneRuntime {
     return this.designFeedback
   }
 
+  setDesignReviewEnabled(enabled: boolean) {
+    if (this.designReview) this.designReview.enabled = enabled
+  }
+
+  isDesignReviewEnabled(): boolean {
+    return this.designReview?.enabled ?? false
+  }
+
   subscribe(listener: SessionListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -285,6 +319,72 @@ export class PaneRuntime {
   }
 
   // ── Internal ──
+
+  private async runDesignReviewLoop(originalInput: PaneInput, sessionForAgent: PaneSession) {
+    if (!this.designReview) return
+    const { reviewCall, validateRender, maxRounds = 2 } = this.designReview
+
+    for (let round = 0; round < maxRounds; round++) {
+      emitTelemetry('eval:result', {
+        type: 'design-review',
+        round: round + 1,
+      }, { preview: `Design review round ${round + 1}/${maxRounds}...` })
+
+      // Review current spec
+      const reviewStart = performance.now()
+      const issues = await reviewCall(this.session)
+      const reviewDur = Math.round(performance.now() - reviewStart)
+
+      if (issues.length === 0) {
+        emitTelemetry('eval:result', {
+          type: 'design-review-approved',
+          round: round + 1,
+        }, { duration: reviewDur, preview: `Design review approved (round ${round + 1}, ${reviewDur}ms)` })
+        break
+      }
+
+      emitTelemetry('eval:finding', {
+        type: 'design-review-issues',
+        round: round + 1,
+        issueCount: issues.length,
+        issues: issues.slice(0, 5),
+      }, { duration: reviewDur, preview: `Design review: ${issues.length} issues found (round ${round + 1}) — regenerating` })
+
+      // Feed findings back to agent and regenerate
+      const fixSession = Object.assign({}, this.session, {
+        __lastEvalFindings: issues.map(i => `[design-review] ${i}`),
+      })
+
+      const fixStart = performance.now()
+      const fixUpdate = await this.agent.onInput(originalInput, fixSession)
+      const fixDur = Math.round(performance.now() - fixStart)
+
+      emitTelemetry('agent:response', {
+        type: 'design-review-fix',
+        round: round + 1,
+      }, { duration: fixDur, preview: `Agent regenerated after design review (round ${round + 1}, ${fixDur}ms)` })
+
+      this.applyUpdate(fixUpdate)
+    }
+
+    // Optional: Playwright render validation
+    if (validateRender) {
+      emitTelemetry('eval:result', { type: 'render-validation' }, { preview: 'Validating rendered output...' })
+
+      const valStart = performance.now()
+      const validation = await validateRender()
+      const valDur = Math.round(performance.now() - valStart)
+
+      if (validation.passed) {
+        emitTelemetry('eval:result', { type: 'render-validation-passed' }, { duration: valDur, preview: `Render validation passed (${valDur}ms)` })
+      } else {
+        emitTelemetry('eval:finding', {
+          type: 'render-validation-failed',
+          issues: validation.issues,
+        }, { duration: valDur, preview: `Render validation: ${validation.issues.length} issues (${valDur}ms)` })
+      }
+    }
+  }
 
   private runSpecEval(update: PaneSessionUpdate, elapsedMs: number) {
     try {

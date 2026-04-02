@@ -723,6 +723,81 @@ export function createClaudeSectionCall(config: ClaudeConnectorConfig) {
   }
 }
 
+/**
+ * Creates a design review function for the pre-render review loop.
+ * Sends the current session spec to Claude for design critique.
+ * Returns an array of issues (empty = approved).
+ */
+export function createClaudeDesignReview(config: ClaudeConnectorConfig) {
+  const endpoint = config.proxyUrl ?? 'https://api.anthropic.com/v1/messages'
+  const useProxy = !!config.proxyUrl
+
+  const reviewPrompt = `You are a design reviewer for Pane, a declarative UI system. Review the session spec for design issues.
+
+Check for:
+1. Layout problems: empty columns in split layouts, mismatched panel widths, wasted space
+2. Invalid patterns: wrong atom usage, missing required props, empty containers
+3. Density issues: too sparse for modality, too dense for readability
+4. Typography: inconsistent levels, missing labels, wrong font usage
+5. Information hierarchy: unclear focal point, competing elements, no visual priority
+
+If the spec looks good, respond with: {"issues": []}
+If there are problems, respond with: {"issues": ["Issue 1 description", "Issue 2 description"]}
+
+Be specific — reference panel IDs, atom types, and exact problems. Max 5 issues.
+Respond ONLY with JSON.`
+
+  return async function reviewCall(session: import('../spec/types.js').PaneSession): Promise<string[]> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!useProxy && config.apiKey) {
+      headers['x-api-key'] = config.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    }
+
+    const activeCtx = session.contexts.find(c => c.id === session.activeContext)
+    if (!activeCtx) return []
+
+    const specSummary = JSON.stringify({
+      layout: activeCtx.view.layout,
+      modality: activeCtx.modality,
+      panels: activeCtx.view.panels.map(function summarize(p: any): any {
+        return {
+          id: p.id,
+          atom: p.atom,
+          recipe: p.recipe,
+          propsKeys: Object.keys(p.props ?? {}),
+          childCount: p.children?.length ?? 0,
+          children: p.children?.map(summarize),
+          emphasis: p.emphasis,
+        }
+      }),
+    }, null, 2)
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: config.model ?? 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: reviewPrompt,
+        messages: [{ role: 'user', content: `Review this Pane view spec:\n${specSummary}` }],
+      }),
+    })
+
+    if (!res.ok) return []
+
+    try {
+      const data = await res.json()
+      const text = data.content?.[0]?.text ?? ''
+      const cleaned = text.replace(/^```json?\s*\n?/, '').replace(/\n?\s*```\s*$/, '').trim()
+      const parsed = JSON.parse(cleaned)
+      return parsed.issues ?? []
+    } catch {
+      return []
+    }
+  }
+}
+
 // Sanitize style objects from Claude — remove anything React can't handle
 function sanitizeStyle(style: any): Record<string, string | number> | undefined {
   if (!style || typeof style !== 'object') return undefined

@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { createPane, claudeAgent, createClaudeVisualEvaluator, createClaudePlanCall, createClaudeSectionCall } from '@pane/core'
+import { createPane, claudeAgent, createClaudeVisualEvaluator, createClaudePlanCall, createClaudeSectionCall, createClaudeDesignReview } from '@pane/core'
 import { PaneProvider, PaneRenderer, capturePane } from '@pane/renderer'
 import { defaultTheme } from '@pane/theme'
 import { starterAgent } from './agent.js'
@@ -36,6 +36,11 @@ const claudeConfig = {
 const pane = createPane({
   agent,
   specEvalEnabled: false,
+  designReview: useStarter ? undefined : {
+    reviewCall: createClaudeDesignReview(claudeConfig),
+    maxRounds: 2,
+    enabled: false,  // Toggle via UI — default off
+  },
   decompose: useStarter ? undefined : {
     planCall: createClaudePlanCall(claudeConfig),
     sectionCall: createClaudeSectionCall(claudeConfig),

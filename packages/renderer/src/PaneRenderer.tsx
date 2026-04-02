@@ -88,6 +88,7 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
   const [showEval, setShowEval] = useState(false)
   const [specEvalOn, setSpecEvalOn] = useState(() => runtime.isSpecEvalEnabled?.() ?? false)
   const [visualEvalOn, setVisualEvalOn] = useState(() => runtime.isVisualEvalEnabled?.() ?? false)
+  const [designReviewOn, setDesignReviewOn] = useState(() => runtime.isDesignReviewEnabled?.() ?? false)
 
   const toggleSpecEval = useCallback(() => {
     const next = !specEvalOn
@@ -100,6 +101,12 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
     setVisualEvalOn(next)
     runtime.setVisualEvalEnabled?.(next)
   }, [visualEvalOn, runtime])
+
+  const toggleDesignReview = useCallback(() => {
+    const next = !designReviewOn
+    setDesignReviewOn(next)
+    runtime.setDesignReviewEnabled?.(next)
+  }, [designReviewOn, runtime])
 
   return (
     <div style={shellStyle} data-pane-root>
@@ -248,6 +255,9 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
           </button>
           <button onClick={toggleVisualEval} style={{ ...toggleBtnStyle, color: visualEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
             VIS {visualEvalOn ? 'ON' : 'OFF'}
+          </button>
+          <button onClick={toggleDesignReview} style={{ ...toggleBtnStyle, color: designReviewOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
+            REV {designReviewOn ? 'ON' : 'OFF'}
           </button>
           {evalResult && specEvalOn && (
             <button
