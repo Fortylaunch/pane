@@ -78,6 +78,11 @@ export function PaneRenderer() {
   const completedActions = session.actions.filter(a => a.status === 'completed')
   const inFlightActions = session.actions.filter(a => a.status === 'executing')
 
+  // Eval feedback
+  const evalResult = runtime.getLastEvalResult?.()
+  const evalIssues = evalResult?.findings?.filter((f: any) => f.grade !== 'pass') ?? []
+  const [showEval, setShowEval] = useState(false)
+
   return (
     <div style={shellStyle} data-pane-root>
     <div style={rootStyle}>
@@ -86,9 +91,9 @@ export function PaneRenderer() {
         @keyframes pane-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
         @keyframes pane-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--pane-color-border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: var(--pane-color-border); border-radius: 0; }
       `}</style>
 
       {/* Context tabs — show when multiple contexts exist */}
@@ -203,24 +208,70 @@ export function PaneRenderer() {
         )}
       </AnimatePresence>
 
+      {/* Top bar — modality + eval status */}
+      {activeContext && (
+        <div style={topBarStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={modalityDotStyle(modality)} />
+            <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
+              {activeContext.label || modality}
+            </span>
+          </div>
+          {evalResult && (
+            <button
+              onClick={() => setShowEval(v => !v)}
+              style={{
+                ...contextTabStyle,
+                fontSize: '10px',
+                padding: '2px 8px',
+                color: evalResult.overallGrade === 'pass' ? 'var(--pane-color-success)'
+                  : evalResult.overallGrade === 'warn' ? 'var(--pane-color-warning)'
+                  : 'var(--pane-color-danger)',
+              }}
+            >
+              EVAL {evalResult.overallGrade.toUpperCase()} · {evalIssues.length} issue{evalIssues.length !== 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Eval findings panel */}
+      <AnimatePresence>
+        {showEval && evalIssues.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            style={evalBarStyle}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>
+                EVAL FINDINGS
+              </span>
+            </div>
+            {evalIssues.slice(0, 6).map((issue: any, i: number) => (
+              <div key={i} style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', display: 'flex', gap: '6px', padding: '2px 0', color: issue.grade === 'fail' ? 'var(--pane-color-danger)' : 'var(--pane-color-warning)' }}>
+                <span style={{ opacity: 0.6 }}>[{issue.dimension}]</span>
+                <span>{issue.message}</span>
+                {issue.suggestion && <span style={{ color: 'var(--pane-color-text-muted)' }}>→ {issue.suggestion}</span>}
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* View area */}
       <div style={viewAreaStyle} data-pane-view>
         <AnimatePresence mode="wait">
           {activeContext ? (
             <motion.div
               key={activeContext.id + '-' + session.version}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25 }}
-              style={{ width: '100%' }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              style={{ width: '100%', height: '100%' }}
             >
-              {/* Modality indicator */}
-              <div style={modalityIndicatorStyle}>
-                <span style={modalityDotStyle(modality)} />
-                <span>{activeContext.label || modality}</span>
-              </div>
-
               <Layout config={activeContext.view.layout}>
                 {activeContext.view.panels.map(panel => (
                   <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} />
@@ -320,23 +371,18 @@ export function PaneRenderer() {
         )}
       </AnimatePresence>
 
-      {/* Persistent input — modality-adaptive */}
-      <motion.div layout style={inputBarStyle}>
+      {/* Input */}
+      <div style={inputBarStyle}>
         <Input
-          type={inputConfig.size === 'large' ? 'text' : 'text'}
+          type="text"
           placeholder={loading ? 'Working...' : inputConfig.placeholder}
           onSubmit={handleUserInput}
           style={{
             background: 'var(--pane-color-background)',
-            border: '1px solid var(--pane-color-border)',
-            fontSize: inputConfig.size === 'large' ? 'var(--pane-text-md-size)' : 'var(--pane-text-sm-size)',
             opacity: loading ? 0.5 : 1,
-            transition: 'all 0.2s ease',
-            padding: inputConfig.size === 'large' ? '14px 18px' : '8px 14px',
-            borderRadius: 'var(--pane-radius-lg)',
           }}
         />
-      </motion.div>
+      </div>
     </div>
 
     {/* Telemetry drawer — sits beside main content */}
@@ -369,10 +415,27 @@ const rootStyle: CSSProperties = {
   transition: 'flex 0.3s ease',
 }
 
+const topBarStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '3px 12px',
+  borderBottom: '1px solid var(--pane-color-border)',
+  background: 'var(--pane-color-surface)',
+  minHeight: '24px',
+}
+
+const evalBarStyle: CSSProperties = {
+  padding: '6px 12px',
+  background: 'var(--pane-color-surface)',
+  borderBottom: '1px solid var(--pane-color-border)',
+  overflow: 'hidden',
+}
+
 const viewAreaStyle: CSSProperties = {
   flex: 1,
   overflowY: 'auto',
-  padding: '8px 12px',
+  padding: '6px 8px',
   display: 'flex',
   flexDirection: 'column',
 }
@@ -401,39 +464,41 @@ const subtitleStyle: CSSProperties = {
 }
 
 const inputBarStyle: CSSProperties = {
-  padding: '6px 12px',
+  padding: '4px 8px',
   borderTop: '1px solid var(--pane-color-border)',
   background: 'var(--pane-color-surface)',
 }
 
 const contextTabsStyle: CSSProperties = {
   display: 'flex',
-  gap: '2px',
-  padding: '4px 16px',
+  gap: '0px',
+  padding: '0 8px',
   background: 'var(--pane-color-surface)',
   borderBottom: '1px solid var(--pane-color-border)',
   overflowX: 'auto',
 }
 
 const contextTabStyle: CSSProperties = {
-  padding: '4px 12px',
-  fontSize: '12px',
+  padding: '4px 10px',
+  fontSize: '10px',
+  fontFamily: 'var(--pane-font-mono)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
   color: 'var(--pane-color-text-muted)',
   background: 'transparent',
   border: 'none',
-  borderRadius: 'var(--pane-radius-sm)',
+  borderRadius: '0',
   cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',
-  gap: '6px',
+  gap: '4px',
   whiteSpace: 'nowrap',
-  fontFamily: 'inherit',
-  transition: 'all 0.15s ease',
+  transition: 'color 0.15s ease, background 0.15s ease',
 }
 
 const contextTabActiveStyle: CSSProperties = {
-  color: 'var(--pane-color-text)',
-  background: 'var(--pane-color-surface-raised)',
+  color: 'var(--pane-color-accent-text)',
+  background: 'var(--pane-color-accent)',
 }
 
 const MODALITY_COLORS: Record<string, string> = {
@@ -456,20 +521,8 @@ function modalityDotStyle(modality: string): CSSProperties {
   }
 }
 
-const modalityIndicatorStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  fontSize: '11px',
-  color: 'var(--pane-color-text-muted)',
-  marginBottom: '16px',
-  textTransform: 'uppercase',
-  letterSpacing: '0.06em',
-  fontWeight: 500,
-}
-
 const observabilityStyle: CSSProperties = {
-  padding: '12px 32px',
+  padding: '6px 12px',
   background: 'var(--pane-color-surface)',
   borderBottom: '1px solid var(--pane-color-border)',
   overflow: 'hidden',
@@ -490,7 +543,7 @@ const obsMutedStyle: CSSProperties = {
 }
 
 const loadingBarStyle: CSSProperties = {
-  padding: '6px 32px',
+  padding: '4px 12px',
   fontSize: '12px',
   color: 'var(--pane-color-accent)',
   background: 'var(--pane-color-surface)',
@@ -508,8 +561,8 @@ const shimmerStyle: CSSProperties = {
 }
 
 const errorBarStyle: CSSProperties = {
-  padding: '8px 32px',
-  fontSize: '13px',
+  padding: '4px 12px',
+  fontSize: '10px',
   color: 'var(--pane-color-danger)',
   background: 'rgba(239, 68, 68, 0.06)',
   borderTop: '1px solid rgba(239, 68, 68, 0.2)',
@@ -517,8 +570,8 @@ const errorBarStyle: CSSProperties = {
 }
 
 const statusBarStyle: CSSProperties = {
-  padding: '6px 32px',
-  fontSize: '12px',
+  padding: '4px 12px',
+  fontSize: '10px',
   color: 'var(--pane-color-text-muted)',
   background: 'var(--pane-color-surface)',
   borderTop: '1px solid var(--pane-color-border)',
@@ -527,8 +580,8 @@ const statusBarStyle: CSSProperties = {
 }
 
 const actionBarStyle: CSSProperties = {
-  padding: '6px 32px',
-  fontSize: '12px',
+  padding: '4px 12px',
+  fontSize: '10px',
   color: 'var(--pane-color-text)',
   background: 'var(--pane-color-surface)',
   borderTop: '1px solid var(--pane-color-border)',
