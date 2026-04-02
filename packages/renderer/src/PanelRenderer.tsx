@@ -26,7 +26,7 @@ interface PanelRendererProps {
 }
 
 // Spring configs
-const PANEL_SPRING = { type: 'spring' as const, stiffness: 300, damping: 30 }
+const PANEL_SPRING = { type: 'spring' as const, stiffness: 400, damping: 35 }
 
 export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRendererProps) {
   // Expand recipe to atom tree if present
@@ -129,9 +129,9 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRe
     <motion.div
       layout
       layoutId={panel.id}
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
+      exit={{ opacity: 0, y: -4 }}
       transition={PANEL_SPRING}
       style={{
         position: 'relative',

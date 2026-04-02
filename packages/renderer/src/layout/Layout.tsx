@@ -14,7 +14,7 @@ export function Layout({ config, children }: LayoutProps) {
 function getLayoutStyle(config: LayoutConfig): CSSProperties {
   const base: CSSProperties = {
     width: '100%',
-    gap: config.gap ?? 'var(--pane-space-md)',
+    gap: config.gap ?? 'var(--pane-space-sm)',
   }
 
   switch (config.pattern) {

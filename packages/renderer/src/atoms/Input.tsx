@@ -24,7 +24,7 @@ const baseStyle: CSSProperties = {
   background: 'var(--pane-color-surface)',
   border: '1px solid var(--pane-color-border)',
   borderRadius: 'var(--pane-radius-md)',
-  padding: '10px 14px',
+  padding: '6px 10px',
   outline: 'none',
   width: '100%',
   boxSizing: 'border-box' as const,

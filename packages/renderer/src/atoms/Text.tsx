@@ -28,17 +28,17 @@ const LEVEL_STYLES: Record<TextLevel, CSSProperties> = {
   },
   body: {
     fontSize: 'var(--pane-text-md-size)',
-    lineHeight: '1.65',
+    lineHeight: '1.5',
     fontWeight: 400,
     color: 'var(--pane-color-text)',
   },
   label: {
     fontSize: 'var(--pane-text-xs-size)',
     lineHeight: 'var(--pane-text-xs-line)',
-    fontWeight: 600,
+    fontWeight: 500,
     color: 'var(--pane-color-text-muted)',
     textTransform: 'uppercase',
-    letterSpacing: '0.08em',
+    letterSpacing: '0.06em',
   },
   caption: {
     fontSize: 'var(--pane-text-xs-size)',

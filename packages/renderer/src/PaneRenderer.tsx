@@ -372,7 +372,7 @@ const rootStyle: CSSProperties = {
 const viewAreaStyle: CSSProperties = {
   flex: 1,
   overflowY: 'auto',
-  padding: '24px 32px',
+  padding: '12px 16px',
   display: 'flex',
   flexDirection: 'column',
 }
@@ -401,7 +401,7 @@ const subtitleStyle: CSSProperties = {
 }
 
 const inputBarStyle: CSSProperties = {
-  padding: '16px 32px',
+  padding: '10px 16px',
   borderTop: '1px solid var(--pane-color-border)',
   background: 'var(--pane-color-surface)',
 }
@@ -409,7 +409,7 @@ const inputBarStyle: CSSProperties = {
 const contextTabsStyle: CSSProperties = {
   display: 'flex',
   gap: '2px',
-  padding: '6px 32px',
+  padding: '4px 16px',
   background: 'var(--pane-color-surface)',
   borderBottom: '1px solid var(--pane-color-border)',
   overflowX: 'auto',
