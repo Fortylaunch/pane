@@ -565,6 +565,120 @@ function normalizePanel(panel: any): any {
   }
 }
 
+// ── Decomposer Integration ──
+
+import type { DecompositionPlan, SectionManifest } from '../decompose/index.js'
+
+const PLAN_PROMPT = `You are a UI planner for Pane. Given a user request, decompose it into sections that can be composed independently.
+
+Respond with JSON only:
+{
+  "layout": { "pattern": "split", "ratio": "3:2" },
+  "modality": "informational",
+  "label": "View Title",
+  "sections": [
+    { "id": "map-section", "label": "MAP", "description": "Interactive world map showing conflict zones with colored markers", "position": "left" },
+    { "id": "news-section", "label": "NEWS FEED", "description": "Live news stream with severity badges and source attribution", "position": "right" }
+  ]
+}
+
+Rules:
+- Max 4 sections. Prefer 2-3 for split/sidebar layouts.
+- Each section.description must be specific enough to generate independently.
+- Use layout patterns: split (2 panels), sidebar (nav + main), stack (vertical), grid (auto-fill cards), dashboard (header + main + footer).
+- Position values: left, right, top, bottom, main, full.
+- The "id" must be unique and descriptive (used as panel ID prefix).`
+
+const SECTION_PROMPT = `You are composing ONE section of a larger Pane view. Generate ONLY the panels for this specific section — not the full view.
+
+You have the same atoms, recipes, and design rules as the full system. But you are generating a FRAGMENT, not a complete view.
+
+Respond with JSON:
+{
+  "panels": [ ...array of PanePanel objects... ]
+}
+
+Every panel must have "id", "atom", "props", "source": "claude". Use children for nesting. Use recipes where appropriate. Follow all design rules (dark theme, monospace labels, sharp corners, compact spacing).
+
+Do NOT wrap in a context or view — just the panels array.`
+
+/**
+ * Creates a plan call function for the decomposer.
+ * Sends a lightweight request to Claude to get a section manifest.
+ */
+export function createClaudePlanCall(config: ClaudeConnectorConfig) {
+  const endpoint = config.proxyUrl ?? 'https://api.anthropic.com/v1/messages'
+  const useProxy = !!config.proxyUrl
+
+  return async function planCall(userRequest: string, session: PaneSession): Promise<DecompositionPlan> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!useProxy && config.apiKey) {
+      headers['x-api-key'] = config.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: config.model ?? 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: PLAN_PROMPT,
+        messages: [{ role: 'user', content: `User request: "${userRequest}"\n\nDecompose this into sections.` }],
+      }),
+    })
+
+    const data = await res.json()
+    const text = data.content?.[0]?.text ?? ''
+    const cleaned = text.replace(/^```json?\s*\n?/, '').replace(/\n?\s*```\s*$/, '').trim()
+    return JSON.parse(cleaned) as DecompositionPlan
+  }
+}
+
+/**
+ * Creates a section call function for the decomposer.
+ * Generates panels for a single section of the view.
+ */
+export function createClaudeSectionCall(config: ClaudeConnectorConfig) {
+  const endpoint = config.proxyUrl ?? 'https://api.anthropic.com/v1/messages'
+  const useProxy = !!config.proxyUrl
+
+  return async function sectionCall(section: SectionManifest, context: string, session: PaneSession): Promise<import('../spec/types.js').PanePanel[]> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!useProxy && config.apiKey) {
+      headers['x-api-key'] = config.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: config.model ?? 'claude-sonnet-4-6',
+        max_tokens: config.maxTokens ?? 4096,
+        system: SECTION_PROMPT + '\n\n' + DEFAULT_SYSTEM_PROMPT.substring(0, 3000), // include design rules
+        messages: [{
+          role: 'user',
+          content: `View context: ${context}\n\nGenerate the "${section.label}" section:\n${section.description}\n\nSection ID prefix: ${section.id}\nPosition: ${section.position}`,
+        }],
+      }),
+    })
+
+    const data = await res.json()
+    const text = data.content?.[0]?.text ?? ''
+    let cleaned = text.replace(/^```json?\s*\n?/, '').replace(/\n?\s*```\s*$/, '').trim()
+    if (!cleaned.startsWith('{')) {
+      const first = cleaned.indexOf('{')
+      const last = cleaned.lastIndexOf('}')
+      if (first !== -1 && last > first) cleaned = cleaned.substring(first, last + 1)
+    }
+
+    const parsed = JSON.parse(cleaned)
+    const panels = parsed.panels ?? (Array.isArray(parsed) ? parsed : [parsed])
+    return panels.map(normalizePanel)
+  }
+}
+
 // Sanitize style objects from Claude — remove anything React can't handle
 function sanitizeStyle(style: any): Record<string, string | number> | undefined {
   if (!style || typeof style !== 'object') return undefined

@@ -29,7 +29,7 @@ export type { PaneRuntimeConfig, SessionListener, VisualEvalConfig } from './run
 // Connectors
 export { httpAgent } from './connectors/http.js'
 export { wsAgent } from './connectors/ws.js'
-export { claudeAgent } from './connectors/claude.js'
+export { claudeAgent, createClaudePlanCall, createClaudeSectionCall } from './connectors/claude.js'
 export type { HttpConnectorConfig, WsConnectorConfig, ClaudeConnectorConfig, PaneRequest, PaneResponse, PaneStreamChunk } from './connectors/types.js'
 
 // Visual Feedback
@@ -43,3 +43,7 @@ export type { TelemetryEvent, TelemetryEventType } from './telemetry/index.js'
 // Evals
 export { runEval, formatEvalResult } from './evals/runner.js'
 export type { EvalContext, EvalResult, EvalFinding, EvalDimension, EvalScenario } from './evals/types.js'
+
+// Decompose
+export { decomposeAndAssemble, shouldDecompose } from './decompose/index.js'
+export type { DecomposeConfig, DecompositionPlan, SectionManifest } from './decompose/index.js'

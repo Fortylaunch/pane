@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { createPane, claudeAgent, createClaudeVisualEvaluator } from '@pane/core'
+import { createPane, claudeAgent, createClaudeVisualEvaluator, createClaudePlanCall, createClaudeSectionCall } from '@pane/core'
 import { PaneProvider, PaneRenderer, capturePane } from '@pane/renderer'
 import { defaultTheme } from '@pane/theme'
 import { starterAgent } from './agent.js'
@@ -17,7 +17,7 @@ const agent = useStarter
   ? starterAgent
   : claudeAgent({
       proxyUrl: 'http://localhost:3001/api/claude',
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-6',
       maxTokens: 16384,
     })
 
@@ -27,9 +27,20 @@ const visualEvaluator = useStarter ? undefined : createClaudeVisualEvaluator({
   model: 'claude-haiku-4-5-20251001',
 })
 
+const claudeConfig = {
+  proxyUrl: 'http://localhost:3001/api/claude',
+  model: 'claude-sonnet-4-6' as const,
+  maxTokens: 16384,
+}
+
 const pane = createPane({
   agent,
-  specEvalEnabled: false,  // Toggle via UI — default off
+  specEvalEnabled: false,
+  decompose: useStarter ? undefined : {
+    planCall: createClaudePlanCall(claudeConfig),
+    sectionCall: createClaudeSectionCall(claudeConfig),
+    concurrency: 3,
+  },
   visualEval: visualEvaluator ? {
     captureScreen: () => capturePane({ scale: 0.5, quality: 0.6, format: 'jpeg' }),
     evaluateVisual: visualEvaluator,

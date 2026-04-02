@@ -21,6 +21,7 @@ import { FeedbackStore } from '../feedback/index.js'
 import { emitTelemetry } from '../telemetry/index.js'
 import { runEval, formatEvalResult } from '../evals/runner.js'
 import type { EvalResult } from '../evals/types.js'
+import { decomposeAndAssemble, shouldDecompose, type DecomposeConfig } from '../decompose/index.js'
 
 export interface VisualEvalConfig {
   captureScreen: () => Promise<string>
@@ -35,6 +36,7 @@ export interface PaneRuntimeConfig {
   tickInterval?: number     // ms — how often to call agent.tick(). 0 = disabled.
   visualEval?: VisualEvalConfig  // post-render visual evaluation
   specEvalEnabled?: boolean // 6D spec eval after each response (default: false)
+  decompose?: DecomposeConfig   // request decomposition for complex views
 }
 
 export type SessionListener = (session: PaneSession) => void
@@ -52,12 +54,14 @@ export class PaneRuntime {
   private lastEvalResult: EvalResult | null = null
   private specEvalEnabled = false
   private _visualEvalEnabled = false
+  private decomposeConfig: DecomposeConfig | null = null
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
     this.visualEval = config.visualEval ?? null
     this.specEvalEnabled = config.specEvalEnabled ?? false
     this._visualEvalEnabled = config.visualEval?.enabled ?? false
+    this.decomposeConfig = config.decompose ?? null
     this.actions = new ActionManager()
     this.feedbackStore = new FeedbackStore()
 
@@ -128,21 +132,47 @@ export class PaneRuntime {
         })
       : this.session
 
-    const start = performance.now()
-    const update = await this.agent.onInput(input, sessionForAgent)
-    const dur = Math.round(performance.now() - start)
+    // Route: decompose complex requests or go direct
+    if (this.decomposeConfig && shouldDecompose(input.content)) {
+      emitTelemetry('agent:request', { type: 'decompose' }, { preview: `Decomposing complex request...` })
 
-    emitTelemetry('agent:response', {
-      contexts: update.contexts?.length ?? 0,
-      actions: update.actions?.length ?? 0,
-      agents: update.agents?.length ?? 0,
-    }, { duration: dur, preview: `Agent responded: ${update.contexts?.length ?? 0} contexts, ${update.actions?.length ?? 0} actions (${dur}ms)` })
+      const decomposeCfg: DecomposeConfig = {
+        ...this.decomposeConfig,
+        onScaffold: (scaffoldUpdate) => {
+          this.applyUpdate(scaffoldUpdate)
+        },
+        onSection: (sectionId, panels, progressUpdate) => {
+          this.applyUpdate(progressUpdate)
+        },
+        onComplete: (finalUpdate) => {
+          // Final update handled below
+        },
+      }
 
-    this.applyUpdate(update)
+      const start = performance.now()
+      const update = await decomposeAndAssemble(input.content, sessionForAgent, decomposeCfg)
+      const dur = Math.round(performance.now() - start)
 
-    // Run 6D spec eval on the updated session (if enabled)
-    if (this.specEvalEnabled) {
-      this.runSpecEval(update, dur)
+      emitTelemetry('agent:response', {
+        type: 'decompose-complete',
+        contexts: update.contexts?.length ?? 0,
+      }, { duration: dur, preview: `Decomposition complete (${dur}ms)` })
+
+      this.applyUpdate(update)
+      if (this.specEvalEnabled) this.runSpecEval(update, dur)
+    } else {
+      const start = performance.now()
+      const update = await this.agent.onInput(input, sessionForAgent)
+      const dur = Math.round(performance.now() - start)
+
+      emitTelemetry('agent:response', {
+        contexts: update.contexts?.length ?? 0,
+        actions: update.actions?.length ?? 0,
+        agents: update.agents?.length ?? 0,
+      }, { duration: dur, preview: `Agent responded: ${update.contexts?.length ?? 0} contexts, ${update.actions?.length ?? 0} actions (${dur}ms)` })
+
+      this.applyUpdate(update)
+      if (this.specEvalEnabled) this.runSpecEval(update, dur)
     }
 
     // Trigger visual eval AFTER render — runs async, doesn't block the return
