@@ -46,7 +46,7 @@ You respond with a PaneSessionUpdate JSON object:
 
 Use "operation": "create" for the first response, "update" for subsequent ones.
 
-## The 8 Atoms
+## The 12 Atoms
 
 BOX — Container. Must have at least one child. Max nesting: 4 levels. Use "atom": "box", "children": [...]. Props: background, borderColor, padding, gap, direction ("row"|"column"), radius, flex. CRITICAL: This is a dark theme. NEVER use white, light, or bright backgrounds on boxes. Use dark colors only: #18181b, #27272a, #1e293b, rgba(255,255,255,0.05). If you need visual distinction between cards, use subtle border colors or very slight background variations within the dark palette.
 
@@ -63,6 +63,44 @@ FRAME — Embedded content. Use "atom": "frame", "props": { "src": "..." }. Must
 ICON — Symbols. Use "atom": "icon", "props": { "name": "check" }. Available: check, x, arrow_right, plus, search, alert, info. Must pair with text label unless universally clear.
 
 SPACER — Whitespace. Use "atom": "spacer", "props": { "size": "24px" }. Use to encode grouping. Major sections: ≥24px. Within sections: ≥8px.
+
+BADGE — Status tag/label. Use "atom": "badge", "props": { "label": "Live", "variant": "success" }. Variants: default, success, warning, danger, info. Size: sm, md. Great for status indicators, categories, counts.
+
+DIVIDER — Section separator. Use "atom": "divider", "props": {}. Props: orientation ("horizontal"|"vertical"), label (optional centered text), spacing. Use to separate logical sections.
+
+PROGRESS — Progress bar. Use "atom": "progress", "props": { "value": 75, "max": 100, "label": "Upload" }. Variants: default, success, warning, danger. Size: sm, md. Animated fill bar.
+
+LIST — Semantic list. Use "atom": "list", "props": { "items": ["Item 1", "Item 2"], "ordered": false }. Renders proper <ul>/<ol>. Use instead of manually composing box+text for lists.
+
+## The 13 Recipes
+
+Recipes are pre-composed patterns. Use them by setting "recipe" on a panel. The renderer expands them into atom trees automatically. PREFER recipes over manually composing equivalent atom trees — they produce more consistent, polished output.
+
+METRIC — KPI card. "recipe": "metric", "props": { "label": "Revenue", "value": "$42k", "trend": "+12%" }. Trend auto-colors: green for +, red for -.
+
+STATUS — State indicator. "recipe": "status", "props": { "label": "API", "state": "success", "detail": "200ms" }. States: success, warning, danger, info, idle.
+
+CARD — Container with title. "recipe": "card", "props": { "title": "Settings", "description": "Configure your workspace" }. Can include children.
+
+DATA-TABLE — Tabular data. "recipe": "data-table", "props": { "columns": ["Name", "Role"], "rows": [["Alice", "Admin"], ["Bob", "User"]] }.
+
+EDITOR — Text composition. "recipe": "editor", "props": { "placeholder": "Write here...", "submitLabel": "Save" }.
+
+ACTION-GROUP — Button collection. "recipe": "action-group", "props": { "actions": [{ "label": "Save", "event": "save" }, { "label": "Cancel", "event": "cancel" }] }.
+
+TIMELINE — Event sequence. "recipe": "timeline", "props": { "items": [{ "label": "Deployed", "time": "2m ago", "state": "success" }] }.
+
+FORM — Multi-field form. "recipe": "form", "props": { "fields": [{ "label": "Name", "name": "name" }, { "label": "Role", "name": "role", "type": "select", "options": [{ "label": "Admin", "value": "admin" }] }], "submitLabel": "Create" }.
+
+ALERT — Notification banner. "recipe": "alert", "props": { "message": "Deploy complete.", "type": "success", "title": "Done" }. Types: info, success, warning, danger. Shows icon + colored left border.
+
+KEY-VALUE — Label:value pair list. "recipe": "key-value", "props": { "items": [{ "key": "Status", "value": "Active" }, { "key": "Uptime", "value": "99.9%" }] }.
+
+PROGRESS-TRACKER — Multi-step process. "recipe": "progress-tracker", "props": { "steps": [{ "label": "Plan", "status": "complete" }, { "label": "Build", "status": "active" }, { "label": "Deploy", "status": "pending" }] }.
+
+NAV-LIST — Clickable item list. "recipe": "nav-list", "props": { "items": [{ "label": "Settings", "description": "Configure preferences", "event": "nav-settings", "icon": "search" }] }. Each item triggers its event on click.
+
+STAT-COMPARISON — Before/after metric. "recipe": "stat-comparison", "props": { "label": "MRR", "before": "$37k", "after": "$42k", "change": "+12%" }.
 
 ## Critical Panel Rules
 
@@ -91,6 +129,17 @@ stack (vertical), split (side-by-side, use "ratio": "2:1"), grid (use "columns":
 5. Related items grouped in boxes with consistent spacing
 6. Labels on all groups when view has >2 groups
 7. Data tables >5 columns: prioritize left columns, scroll/expand for rest
+
+## Theme Tokens (CSS Variables)
+
+Colors: --pane-color-background (#09090b), --pane-color-surface (#18181b), --pane-color-surface-raised (#27272a), --pane-color-border (#3f3f46), --pane-color-text (#fafafa), --pane-color-text-muted (#a1a1aa), --pane-color-accent (#3b82f6), --pane-color-danger (#ef4444), --pane-color-success (#22c55e), --pane-color-warning (#f59e0b), --pane-color-info (#3b82f6), --pane-color-overlay (rgba(0,0,0,0.5)), --pane-color-focus-ring (rgba(59,130,246,0.3))
+Spacing: --pane-space-xs (0.25rem), --pane-space-sm (0.5rem), --pane-space-md (1rem), --pane-space-lg (1.5rem), --pane-space-xl (2rem)
+Radius: --pane-radius-sm, --pane-radius-md, --pane-radius-lg, --pane-radius-full
+Shadows: --pane-shadow-sm, --pane-shadow-md, --pane-shadow-lg, --pane-shadow-none (use for elevation)
+Border widths: --pane-border-thin (1px), --pane-border-default (2px), --pane-border-thick (3px)
+Typography: --pane-text-{xs|sm|md|lg|xl|2xl}-size, --pane-font-family, --pane-font-mono
+
+Use these variables in style props instead of hard-coded values. Example: "padding": "var(--pane-space-lg)", "background": "var(--pane-color-surface)".
 
 ## Hard Constraints (Never Violate)
 
@@ -153,11 +202,15 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
     const isFirst = session.contexts.length === 0
     const shouldStream = config.stream !== false // default true
 
+    // Include eval findings from last response so Claude can self-correct
+    const evalFindings = (session as any).__lastEvalFindings as string[] | undefined
+
     const sessionContext = JSON.stringify({
       activeContext: session.activeContext,
       contexts: session.contexts.map(c => ({ id: c.id, label: c.label, modality: c.modality, status: c.status })),
       recentConversation: session.conversation.slice(-10),
       activeActions: session.actions.filter(a => a.status === 'executing' || a.status === 'proposed'),
+      ...(evalFindings && evalFindings.length > 0 ? { evalIssuesFromLastResponse: evalFindings } : {}),
     }, null, 2)
 
     const requestBody = JSON.stringify({

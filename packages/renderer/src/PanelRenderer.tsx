@@ -9,6 +9,10 @@ import { Shape } from './atoms/Shape.js'
 import { Frame } from './atoms/Frame.js'
 import { Icon } from './atoms/Icon.js'
 import { Spacer } from './atoms/Spacer.js'
+import { Badge } from './atoms/Badge.js'
+import { Divider } from './atoms/Divider.js'
+import { Progress } from './atoms/Progress.js'
+import { List } from './atoms/List.js'
 import { expandRecipe } from './recipes/index.js'
 
 interface PanelRendererProps {
@@ -84,6 +88,18 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRe
 
       case 'spacer':
         return <Spacer {...props as any} />
+
+      case 'badge':
+        return <Badge label={String(props.label ?? '')} {...props as any} />
+
+      case 'divider':
+        return <Divider {...props as any} />
+
+      case 'progress':
+        return <Progress value={Number(props.value ?? 0)} {...props as any} />
+
+      case 'list':
+        return <List items={(props.items ?? []) as string[]} {...props as any} />
 
       default:
         return <div style={{ color: 'var(--pane-color-danger)', fontSize: 'var(--pane-text-xs-size)' }}>Unknown atom: {atom}</div>

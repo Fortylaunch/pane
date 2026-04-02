@@ -19,6 +19,8 @@ import type {
 import { ActionManager } from '../actions/index.js'
 import { FeedbackStore } from '../feedback/index.js'
 import { emitTelemetry } from '../telemetry/index.js'
+import { runEval, formatEvalResult } from '../evals/runner.js'
+import type { EvalResult } from '../evals/types.js'
 
 export interface VisualEvalConfig {
   captureScreen: () => Promise<string>
@@ -46,6 +48,7 @@ export class PaneRuntime {
   private initialized = false
   private visualEval: VisualEvalConfig | null = null
   private visualEvalRunning = false
+  private lastEvalResult: EvalResult | null = null
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
@@ -110,8 +113,18 @@ export class PaneRuntime {
     }, { preview: `User: "${input.content.substring(0, 80)}"` })
 
     this.addConversationEntry('user', input.content, input.timestamp)
+
+    // Attach eval findings from last response so the agent can self-correct
+    const sessionForAgent = this.lastEvalResult
+      ? Object.assign({}, this.session, {
+          __lastEvalFindings: this.lastEvalResult.findings
+            .filter(f => f.grade !== 'pass')
+            .map(f => `[${f.dimension}] ${f.message}${f.suggestion ? ` → ${f.suggestion}` : ''}`),
+        })
+      : this.session
+
     const start = performance.now()
-    const update = await this.agent.onInput(input, this.session)
+    const update = await this.agent.onInput(input, sessionForAgent)
     const dur = Math.round(performance.now() - start)
 
     emitTelemetry('agent:response', {
@@ -121,6 +134,9 @@ export class PaneRuntime {
     }, { duration: dur, preview: `Agent responded: ${update.contexts?.length ?? 0} contexts, ${update.actions?.length ?? 0} actions (${dur}ms)` })
 
     this.applyUpdate(update)
+
+    // Run 6D spec eval on the updated session
+    this.runSpecEval(update, dur)
 
     // Trigger visual eval AFTER render — runs async, doesn't block the return
     this.runVisualEval()
@@ -169,6 +185,10 @@ export class PaneRuntime {
     return this.session
   }
 
+  getLastEvalResult(): EvalResult | null {
+    return this.lastEvalResult
+  }
+
   subscribe(listener: SessionListener): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
@@ -184,6 +204,44 @@ export class PaneRuntime {
   }
 
   // ── Internal ──
+
+  private runSpecEval(update: PaneSessionUpdate, elapsedMs: number) {
+    try {
+      const result = runEval({
+        session: this.session,
+        update,
+        elapsedMs,
+      })
+
+      this.lastEvalResult = result
+
+      // Emit eval results as telemetry
+      const issues = result.findings.filter(f => f.grade !== 'pass')
+      emitTelemetry('eval:result', {
+        overallGrade: result.overallGrade,
+        dimensions: result.dimensions,
+        issueCount: issues.length,
+      }, {
+        duration: result.duration,
+        preview: `6D Eval: ${result.overallGrade.toUpperCase()} (${issues.length} issues, ${result.duration}ms)`,
+      })
+
+      // Log individual issues for observability
+      for (const issue of issues) {
+        emitTelemetry('eval:finding', {
+          dimension: issue.dimension,
+          grade: issue.grade,
+          rule: issue.rule,
+          message: issue.message,
+          suggestion: issue.suggestion,
+        }, {
+          preview: `[${issue.dimension}] ${issue.grade}: ${issue.message}`,
+        })
+      }
+    } catch (err) {
+      emitTelemetry('system:info', { error: String(err) }, { preview: `Eval error: ${String(err).substring(0, 100)}` })
+    }
+  }
 
   private async runVisualEval() {
     if (!this.visualEval || !this.visualEval.enabled || this.visualEvalRunning) return

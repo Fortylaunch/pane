@@ -72,7 +72,7 @@ test.describe('Pane Visual Rendering', () => {
     await page.waitForLoadState('networkidle')
 
     await sendMessage(page, 'hello', "I'm Pane")
-    await sendMessage(page, 'show me what you can do', '8 Atoms')
+    await sendMessage(page, 'show me what you can do', '12 Atoms')
 
     await expect(page.locator('text=6 Modalities').first()).toBeVisible()
     await expect(page.locator('text=Action Layer').first()).toBeVisible()
@@ -91,7 +91,7 @@ test.describe('Pane Visual Rendering', () => {
     await sendMessage(page, 'hello', "I'm Pane")
     await sendMessage(page, 'show me a dashboard', 'Dashboard')
     await sendMessage(page, 'let me write something', 'Compose')
-    await sendMessage(page, 'show me what you can do', '8 Atoms')
+    await sendMessage(page, 'show me what you can do', '12 Atoms')
 
     expect(errors).toEqual([])
 

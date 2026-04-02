@@ -20,6 +20,8 @@ export type TelemetryEventType =
   | 'runtime:context'      // context created/activated/removed
   | 'runtime:action'       // action lifecycle change
   | 'feedback:captured'    // user feedback recorded
+  | 'eval:result'          // 6D eval completed
+  | 'eval:finding'         // individual eval finding
   | 'system:info'          // general info
 
 export interface TelemetryEvent {

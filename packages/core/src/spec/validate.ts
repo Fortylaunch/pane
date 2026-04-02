@@ -15,7 +15,7 @@ export interface ValidationResult {
   errors: ValidationError[]
 }
 
-const VALID_ATOMS: AtomType[] = ['box', 'text', 'image', 'input', 'shape', 'frame', 'icon', 'spacer']
+const VALID_ATOMS: AtomType[] = ['box', 'text', 'image', 'input', 'shape', 'frame', 'icon', 'spacer', 'badge', 'divider', 'progress', 'list']
 const VALID_LAYOUTS: LayoutPattern[] = ['stack', 'split', 'grid', 'tabs', 'overlay', 'flow']
 
 function validatePanel(panel: unknown, path: string): ValidationError[] {

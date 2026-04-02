@@ -13,9 +13,11 @@ import {
  * This agent responds to user input by composing views
  * from atoms and recipes. It shows:
  * - Conversational mode (text response + input)
- * - Informational mode (metrics, data)
+ * - Informational mode (metrics, data, recipes)
  * - Compositional mode (editor)
  * - Context shifts
+ * - New atoms: badge, divider, progress, list
+ * - New recipes: alert, key-value, progress-tracker, nav-list, stat-comparison
  */
 export const starterAgent = functionAgent(async (input: PaneInput, session: PaneSession): Promise<PaneSessionUpdate> => {
   const text = input.content.toLowerCase().trim()
@@ -28,7 +30,7 @@ export const starterAgent = functionAgent(async (input: PaneInput, session: Pane
         operation: 'create',
         label: 'Welcome',
         modality: 'conversational',
-        view: makeConversationalView(`Hey! I'm Pane. This surface adapts to whatever you need.\n\nTry: "show me a dashboard", "let me write something", or "show me what you can do".`),
+        view: makeConversationalView(`Hey! I'm Pane. This surface adapts to whatever you need.\n\nTry: "dashboard", "write something", "show me what you can do", "components", or "trigger an action".`),
       }],
       agents: [
         { id: 'starter-agent', name: 'Starter Agent', state: 'idle', lastActive: Date.now() },
@@ -84,6 +86,22 @@ export const starterAgent = functionAgent(async (input: PaneInput, session: Pane
     }
   }
 
+  // Components showcase — new atoms + recipes
+  if (text.includes('component') || text.includes('new') || text.includes('recipe') || text.includes('atom')) {
+    return {
+      contexts: [{
+        id: 'main',
+        operation: 'update',
+        label: 'Components',
+        modality: 'informational',
+        view: makeComponentsView(),
+      }],
+      agents: [
+        { id: 'starter-agent', name: 'Starter Agent', state: 'idle', lastActive: Date.now() },
+      ],
+    }
+  }
+
   // Action demo
   if (text.includes('action') || text.includes('deploy') || text.includes('send')) {
     return {
@@ -115,7 +133,7 @@ export const starterAgent = functionAgent(async (input: PaneInput, session: Pane
       operation: 'update',
       label: 'Chat',
       modality: 'conversational',
-      view: makeConversationalView(`You said: "${input.content}"\n\nI'm the starter agent. Try "dashboard", "write something", "show me what you can do", or "trigger an action".`),
+      view: makeConversationalView(`You said: "${input.content}"\n\nI'm the starter agent. Try "dashboard", "write something", "components", "show me what you can do", or "trigger an action".`),
     }],
     agents: [
       { id: 'starter-agent', name: 'Starter Agent', state: 'idle', lastActive: Date.now() },
@@ -145,67 +163,64 @@ function makeDashboardView(): PaneView {
     panels: [
       {
         id: 'dash-header',
-        atom: 'text',
-        props: { content: 'Dashboard', level: 'heading' },
+        atom: 'box',
+        props: { direction: 'row', align: 'center', gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'dash-title', atom: 'text', props: { content: 'Dashboard', level: 'heading' }, source: 'starter-agent' },
+          { id: 'dash-badge', atom: 'badge', props: { label: 'Live', variant: 'success' }, source: 'starter-agent' },
+        ],
+      },
+      // Alert banner
+      {
+        id: 'dash-alert',
+        atom: 'box',
+        recipe: 'alert',
+        props: { title: 'Revenue milestone', message: 'Monthly revenue exceeded $40k target for the first time.', type: 'success' },
         source: 'starter-agent',
       },
+      // Metrics using recipe
       {
         id: 'metrics-row',
         atom: 'box',
         props: { direction: 'row', gap: 'var(--pane-space-md)' },
         source: 'starter-agent',
         children: [
-          makeMetricPanel('revenue', 'Revenue', '$42,000', '+12%'),
-          makeMetricPanel('users', 'Active Users', '1,247', '+34%'),
-          makeMetricPanel('churn', 'Churn Rate', '2.1%', '-0.3%'),
+          { id: 'metric-revenue', atom: 'box', recipe: 'metric', props: { label: 'Revenue', value: '$42,000', trend: '+12%', flex: '1' }, source: 'starter-agent' },
+          { id: 'metric-users', atom: 'box', recipe: 'metric', props: { label: 'Active Users', value: '1,247', trend: '+34%', flex: '1' }, source: 'starter-agent' },
+          { id: 'metric-churn', atom: 'box', recipe: 'metric', props: { label: 'Churn Rate', value: '2.1%', trend: '-0.3%', flex: '1' }, source: 'starter-agent' },
         ],
       },
+      // Stat comparison
       {
-        id: 'chart-area',
+        id: 'dash-comparison',
         atom: 'box',
-        props: { background: 'var(--pane-color-surface)', padding: 'var(--pane-space-lg)', borderColor: 'var(--pane-color-border)' },
+        recipe: 'stat-comparison',
+        props: { label: 'MRR Growth', before: '$37,500', after: '$42,000', change: '+12%' },
         source: 'starter-agent',
-        children: [
-          {
-            id: 'chart-label',
-            atom: 'text',
-            props: { content: 'Revenue Trend (7 days)', level: 'label' },
-            source: 'starter-agent',
-          },
-          {
-            id: 'chart-viz',
-            atom: 'shape',
-            props: {
-              shape: 'path',
-              d: 'M 0 50 Q 30 20, 60 35 T 120 25 T 180 15 T 200 10',
-              height: '80',
-              stroke: 'var(--pane-color-accent)',
-              strokeWidth: 2,
-            },
-            source: 'starter-agent',
-          },
-        ],
       },
-    ],
-  }
-}
-
-function makeMetricPanel(id: string, label: string, value: string, trend: string): PanePanel {
-  const isPositive = trend.startsWith('+') || trend.startsWith('-') && parseFloat(trend) < 0
-  return {
-    id: `metric-${id}`,
-    atom: 'box',
-    props: {
-      background: 'var(--pane-color-surface)',
-      padding: 'var(--pane-space-lg)',
-      borderColor: 'var(--pane-color-border)',
-      flex: '1',
-    },
-    source: 'starter-agent',
-    children: [
-      { id: `${id}-label`, atom: 'text', props: { content: label, level: 'label' }, source: 'starter-agent' },
-      { id: `${id}-value`, atom: 'text', props: { content: value, level: 'heading' }, source: 'starter-agent' },
-      { id: `${id}-trend`, atom: 'text', props: { content: trend, level: 'caption' }, source: 'starter-agent' },
+      // Progress bar
+      {
+        id: 'dash-progress',
+        atom: 'progress',
+        props: { value: 84, max: 100, label: 'Quarterly Target', variant: 'success' },
+        source: 'starter-agent',
+      },
+      // Key-value details
+      {
+        id: 'dash-details',
+        atom: 'box',
+        recipe: 'key-value',
+        props: {
+          items: [
+            { key: 'Avg. Order Value', value: '$128' },
+            { key: 'Conversion Rate', value: '3.2%' },
+            { key: 'Active Subscriptions', value: '847' },
+            { key: 'Support Tickets', value: '23 open' },
+          ],
+        },
+        source: 'starter-agent',
+      },
     ],
   }
 }
@@ -244,11 +259,11 @@ function makeCapabilitiesView(): PaneView {
   return {
     layout: { pattern: 'grid', columns: 2 },
     panels: [
-      makeCapabilityCard('atoms', '8 Atoms', 'box, text, image, input, shape, frame, icon, spacer — compose anything from these'),
+      makeCapabilityCard('atoms', '12 Atoms', 'box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list'),
+      makeCapabilityCard('recipes', '13 Recipes', 'metric, status, card, data-table, editor, action-group, timeline, form, alert, key-value, progress-tracker, nav-list, stat-comparison'),
       makeCapabilityCard('modality', '6 Modalities', 'conversational, informational, compositional, transactional, collaborative, environmental'),
       makeCapabilityCard('actions', 'Action Layer', 'Propose, confirm, execute, rollback — tracked side effects with full observability'),
       makeCapabilityCard('feedback', 'Feedback Loop', 'Thumbs up/down, dismiss tracking, verbal feedback — the surface learns from use'),
-      makeCapabilityCard('contexts', 'Context Shifting', 'Switch between workspaces fluidly — previous state preserved in background'),
       makeCapabilityCard('trace', 'Traceability', 'Every panel, action, and artifact traces to its source agent — nothing is hidden'),
     ],
   }
@@ -267,6 +282,136 @@ function makeCapabilityCard(id: string, title: string, description: string): Pan
     children: [
       { id: `${id}-title`, atom: 'text', props: { content: title, level: 'subheading' }, source: 'starter-agent' },
       { id: `${id}-desc`, atom: 'text', props: { content: description, level: 'body' }, source: 'starter-agent' },
+    ],
+  }
+}
+
+function makeComponentsView(): PaneView {
+  return {
+    layout: { pattern: 'stack', gap: 'var(--pane-space-lg)' },
+    panels: [
+      // Header
+      {
+        id: 'comp-header',
+        atom: 'text',
+        props: { content: 'New Components', level: 'heading' },
+        source: 'starter-agent',
+      },
+
+      // Badges
+      {
+        id: 'comp-badges',
+        atom: 'box',
+        props: { background: 'var(--pane-color-surface)', padding: 'var(--pane-space-lg)', borderColor: 'var(--pane-color-border)', gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'badges-label', atom: 'text', props: { content: 'Badge Atom', level: 'subheading' }, source: 'starter-agent' },
+          {
+            id: 'badges-row', atom: 'box', props: { direction: 'row', gap: 'var(--pane-space-sm)', align: 'center' }, source: 'starter-agent',
+            children: [
+              { id: 'b-default', atom: 'badge', props: { label: 'Default' }, source: 'starter-agent' },
+              { id: 'b-success', atom: 'badge', props: { label: 'Success', variant: 'success' }, source: 'starter-agent' },
+              { id: 'b-warning', atom: 'badge', props: { label: 'Warning', variant: 'warning' }, source: 'starter-agent' },
+              { id: 'b-danger', atom: 'badge', props: { label: 'Danger', variant: 'danger' }, source: 'starter-agent' },
+              { id: 'b-info', atom: 'badge', props: { label: 'Info', variant: 'info' }, source: 'starter-agent' },
+            ],
+          },
+        ],
+      },
+
+      // Progress bars
+      {
+        id: 'comp-progress',
+        atom: 'box',
+        props: { background: 'var(--pane-color-surface)', padding: 'var(--pane-space-lg)', borderColor: 'var(--pane-color-border)', gap: 'var(--pane-space-md)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'progress-label', atom: 'text', props: { content: 'Progress Atom', level: 'subheading' }, source: 'starter-agent' },
+          { id: 'p-default', atom: 'progress', props: { value: 65, label: 'Upload' }, source: 'starter-agent' },
+          { id: 'p-success', atom: 'progress', props: { value: 100, label: 'Complete', variant: 'success' }, source: 'starter-agent' },
+          { id: 'p-warning', atom: 'progress', props: { value: 45, label: 'Storage', variant: 'warning' }, source: 'starter-agent' },
+          { id: 'p-danger', atom: 'progress', props: { value: 92, label: 'CPU Usage', variant: 'danger' }, source: 'starter-agent' },
+        ],
+      },
+
+      // Divider
+      { id: 'comp-div', atom: 'divider', props: { label: 'Recipes' }, source: 'starter-agent' },
+
+      // Alert recipes
+      {
+        id: 'comp-alerts',
+        atom: 'box',
+        props: { gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'alerts-label', atom: 'text', props: { content: 'Alert Recipe', level: 'subheading' }, source: 'starter-agent' },
+          { id: 'alert-info', atom: 'box', recipe: 'alert', props: { message: 'System update scheduled for tonight.', type: 'info' }, source: 'starter-agent' },
+          { id: 'alert-success', atom: 'box', recipe: 'alert', props: { title: 'Deployed', message: 'v2.4.1 is live on production.', type: 'success' }, source: 'starter-agent' },
+          { id: 'alert-warning', atom: 'box', recipe: 'alert', props: { message: 'API rate limit at 80% of quota.', type: 'warning' }, source: 'starter-agent' },
+          { id: 'alert-danger', atom: 'box', recipe: 'alert', props: { title: 'Error', message: 'Database connection pool exhausted.', type: 'danger' }, source: 'starter-agent' },
+        ],
+      },
+
+      // Progress tracker recipe
+      {
+        id: 'comp-tracker',
+        atom: 'box',
+        props: { background: 'var(--pane-color-surface)', padding: 'var(--pane-space-lg)', borderColor: 'var(--pane-color-border)', gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'tracker-label', atom: 'text', props: { content: 'Progress Tracker Recipe', level: 'subheading' }, source: 'starter-agent' },
+          {
+            id: 'tracker',
+            atom: 'box',
+            recipe: 'progress-tracker',
+            props: {
+              steps: [
+                { label: 'Plan', status: 'complete' },
+                { label: 'Build', status: 'complete' },
+                { label: 'Test', status: 'active' },
+                { label: 'Deploy', status: 'pending' },
+              ],
+            },
+            source: 'starter-agent',
+          },
+        ],
+      },
+
+      // Nav list recipe
+      {
+        id: 'comp-nav',
+        atom: 'box',
+        props: { background: 'var(--pane-color-surface)', borderColor: 'var(--pane-color-border)', gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'nav-label', atom: 'text', props: { content: 'Nav List Recipe', level: 'subheading', style: { padding: 'var(--pane-space-lg) var(--pane-space-lg) 0' } }, source: 'starter-agent' },
+          {
+            id: 'nav',
+            atom: 'box',
+            recipe: 'nav-list',
+            props: {
+              items: [
+                { label: 'Settings', description: 'Configure workspace preferences', event: 'nav-settings', icon: 'search' },
+                { label: 'Team', description: 'Manage collaborators and roles', event: 'nav-team', icon: 'plus' },
+                { label: 'Integrations', description: 'Connect external services', event: 'nav-integrations', icon: 'info' },
+              ],
+            },
+            source: 'starter-agent',
+          },
+        ],
+      },
+
+      // List atom
+      {
+        id: 'comp-list',
+        atom: 'box',
+        props: { background: 'var(--pane-color-surface)', padding: 'var(--pane-space-lg)', borderColor: 'var(--pane-color-border)', gap: 'var(--pane-space-sm)' },
+        source: 'starter-agent',
+        children: [
+          { id: 'list-label', atom: 'text', props: { content: 'List Atom', level: 'subheading' }, source: 'starter-agent' },
+          { id: 'list-demo', atom: 'list', props: { items: ['Badge — status tags and labels', 'Divider — section separators with optional labels', 'Progress — animated progress bars', 'List — semantic ordered and unordered lists'] }, source: 'starter-agent' },
+        ],
+      },
     ],
   }
 }

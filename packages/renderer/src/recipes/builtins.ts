@@ -281,6 +281,204 @@ registerRecipe('form', (panel) => {
   }
 })
 
+// ── Alert ──
+// Props: message, type? (info|success|warning|danger), title?
+registerRecipe('alert', (panel) => {
+  const typeColors: Record<string, { border: string; icon: string; iconName: string }> = {
+    info:    { border: 'var(--pane-color-info)',    icon: 'var(--pane-color-info)',    iconName: 'info' },
+    success: { border: 'var(--pane-color-success)', icon: 'var(--pane-color-success)', iconName: 'check' },
+    warning: { border: 'var(--pane-color-warning)', icon: 'var(--pane-color-warning)', iconName: 'alert' },
+    danger:  { border: 'var(--pane-color-danger)',  icon: 'var(--pane-color-danger)',  iconName: 'alert' },
+  }
+  const type = String(panel.props.type ?? 'info')
+  const colors = typeColors[type] ?? typeColors.info
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      direction: 'row',
+      align: 'flex-start',
+      gap: 'var(--pane-space-sm)',
+      padding: 'var(--pane-space-md)',
+      background: 'var(--pane-color-surface)',
+      style: { borderLeft: `3px solid ${colors.border}` },
+    },
+    children: [
+      p(`${panel.id}-icon`, 'icon', { name: colors.iconName, size: '18', color: colors.icon }, panel.source),
+      {
+        id: `${panel.id}-body`,
+        atom: 'box' as const,
+        props: { gap: 'var(--pane-space-xs)', flex: '1' },
+        source: panel.source,
+        children: [
+          ...(panel.props.title ? [
+            p(`${panel.id}-title`, 'text', { content: String(panel.props.title), level: 'label' }, panel.source),
+          ] : []),
+          p(`${panel.id}-msg`, 'text', { content: String(panel.props.message ?? ''), level: 'body' }, panel.source),
+        ],
+      },
+    ],
+  }
+})
+
+// ── Key-Value List ──
+// Props: items[] ({ key, value })
+registerRecipe('key-value', (panel) => {
+  const items = (panel.props.items ?? []) as { key: string; value: string }[]
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      gap: '0',
+      padding: 'var(--pane-space-sm)',
+    },
+    children: items.map((item, i) => ({
+      id: `${panel.id}-row-${i}`,
+      atom: 'box' as const,
+      props: {
+        direction: 'row',
+        justify: 'space-between',
+        align: 'baseline',
+        padding: 'var(--pane-space-xs) 0',
+        gap: 'var(--pane-space-md)',
+        style: i < items.length - 1 ? { borderBottom: '1px solid var(--pane-color-border)' } : {},
+      },
+      source: panel.source,
+      children: [
+        { id: `${panel.id}-k-${i}`, atom: 'text' as const, props: { content: item.key, level: 'label' }, source: panel.source },
+        { id: `${panel.id}-v-${i}`, atom: 'text' as const, props: { content: item.value, level: 'body' }, source: panel.source },
+      ],
+    })),
+  }
+})
+
+// ── Progress Tracker ──
+// Props: steps[] ({ label, status? (complete|active|pending) })
+registerRecipe('progress-tracker', (panel) => {
+  const steps = (panel.props.steps ?? []) as { label: string; status?: string }[]
+  const variantMap: Record<string, string> = { complete: 'success', active: 'info', pending: 'default' }
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      direction: 'row',
+      align: 'flex-start',
+      gap: 'var(--pane-space-sm)',
+      padding: 'var(--pane-space-sm)',
+    },
+    children: steps.flatMap((step, i) => {
+      const status = step.status ?? 'pending'
+      const variant = variantMap[status] ?? 'default'
+      const stepPanel: PanePanel = {
+        id: `${panel.id}-step-${i}`,
+        atom: 'box' as const,
+        props: { align: 'center', gap: 'var(--pane-space-xs)', flex: '1' },
+        source: panel.source,
+        children: [
+          { id: `${panel.id}-step-${i}-badge`, atom: 'badge' as const, props: { label: String(i + 1), variant }, source: panel.source },
+          { id: `${panel.id}-step-${i}-label`, atom: 'text' as const, props: { content: step.label, level: 'caption' }, source: panel.source },
+        ],
+      }
+      if (i < steps.length - 1) {
+        return [
+          stepPanel,
+          { id: `${panel.id}-sep-${i}`, atom: 'divider' as const, props: { orientation: 'horizontal', spacing: '0', style: { flex: 1, alignSelf: 'center', marginTop: 'var(--pane-space-sm)' } }, source: panel.source },
+        ]
+      }
+      return [stepPanel]
+    }),
+  }
+})
+
+// ── Nav List ──
+// Props: items[] ({ label, description?, event, icon? })
+registerRecipe('nav-list', (panel) => {
+  const items = (panel.props.items ?? []) as { label: string; description?: string; event: string; icon?: string }[]
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: { gap: '0' },
+    children: items.map((item, i) => ({
+      id: `${panel.id}-item-${i}`,
+      atom: 'box' as const,
+      props: {
+        direction: 'row',
+        align: 'center',
+        gap: 'var(--pane-space-sm)',
+        padding: 'var(--pane-space-sm) var(--pane-space-md)',
+        interactive: true,
+        style: i < items.length - 1 ? { borderBottom: '1px solid var(--pane-color-border)' } : {},
+      },
+      source: panel.source,
+      on: { submit: item.event },
+      children: [
+        ...(item.icon ? [
+          { id: `${panel.id}-item-${i}-icon`, atom: 'icon' as const, props: { name: item.icon, size: '16' }, source: panel.source },
+        ] : []),
+        {
+          id: `${panel.id}-item-${i}-text`,
+          atom: 'box' as const,
+          props: { gap: '2px', flex: '1' },
+          source: panel.source,
+          children: [
+            { id: `${panel.id}-item-${i}-label`, atom: 'text' as const, props: { content: item.label, level: 'body' }, source: panel.source },
+            ...(item.description ? [
+              { id: `${panel.id}-item-${i}-desc`, atom: 'text' as const, props: { content: item.description, level: 'caption' }, source: panel.source },
+            ] : []),
+          ],
+        },
+        { id: `${panel.id}-item-${i}-arrow`, atom: 'icon' as const, props: { name: 'arrow_right', size: '14', color: 'var(--pane-color-text-muted)' }, source: panel.source },
+      ],
+    })),
+  }
+})
+
+// ── Stat Comparison ──
+// Props: label, before, after, change?
+registerRecipe('stat-comparison', (panel) => {
+  const change = String(panel.props.change ?? '')
+  const changeColor = change.startsWith('+') ? 'var(--pane-color-success)'
+    : change.startsWith('-') ? 'var(--pane-color-danger)'
+    : 'var(--pane-color-text-muted)'
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      background: 'var(--pane-color-surface)',
+      borderColor: 'var(--pane-color-border)',
+      padding: 'var(--pane-space-lg)',
+      gap: 'var(--pane-space-sm)',
+    },
+    children: [
+      p(`${panel.id}-label`, 'text', { content: String(panel.props.label ?? ''), level: 'label' }, panel.source),
+      {
+        id: `${panel.id}-values`,
+        atom: 'box' as const,
+        props: { direction: 'row', align: 'center', gap: 'var(--pane-space-sm)' },
+        source: panel.source,
+        children: [
+          p(`${panel.id}-before`, 'text', { content: String(panel.props.before ?? ''), level: 'body', style: { color: 'var(--pane-color-text-muted)' } }, panel.source),
+          p(`${panel.id}-arrow`, 'icon', { name: 'arrow_right', size: '14', color: 'var(--pane-color-text-muted)' }, panel.source),
+          p(`${panel.id}-after`, 'text', { content: String(panel.props.after ?? ''), level: 'subheading' }, panel.source),
+          ...(change ? [
+            p(`${panel.id}-change`, 'text', { content: change, level: 'caption', style: { color: changeColor } }, panel.source),
+          ] : []),
+        ],
+      },
+    ],
+  }
+})
+
 // ── Helper ──
 function p(id: string, atom: PanePanel['atom'], props: Record<string, unknown>, source: string): PanePanel {
   return { id, atom, props, source }

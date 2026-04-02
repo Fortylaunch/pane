@@ -60,9 +60,9 @@ export function Box({
     transition: 'all 0.2s ease',
     ...(hovered && hasBorder ? {
       borderColor: 'var(--pane-color-accent)',
-      boxShadow: '0 0 0 1px rgba(59, 130, 246, 0.1), 0 4px 12px rgba(0, 0, 0, 0.15)',
+      boxShadow: '0 0 0 1px var(--pane-color-focus-ring), var(--pane-shadow-md)',
     } : hasBorder ? {
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+      boxShadow: 'var(--pane-shadow-sm)',
     } : {}),
     ...style,
   }

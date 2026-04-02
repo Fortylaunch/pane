@@ -38,6 +38,9 @@ const pane = createPane({
   } : undefined,
 })
 
+// Expose runtime for visual eval script
+;(window as any).__paneRuntime = pane
+
 console.log(`Pane: ${useStarter ? 'Starter agent' : 'Claude + visual eval'}`)
 
 function App() {

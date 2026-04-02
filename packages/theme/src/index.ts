@@ -15,6 +15,22 @@ export interface PaneColorTokens {
   danger: string
   success: string
   warning: string
+  info: string
+  overlay: string
+  focusRing: string
+}
+
+export interface PaneShadowTokens {
+  sm: string
+  md: string
+  lg: string
+  none: string
+}
+
+export interface PaneBorderTokens {
+  thin: string
+  default: string
+  thick: string
 }
 
 export interface PaneTypographyScale {
@@ -67,6 +83,8 @@ export interface PaneTheme {
     typography: PaneTypographyTokens
     spacing: PaneSpacingTokens
     radius: PaneRadiusTokens
+    shadow: PaneShadowTokens
+    border: PaneBorderTokens
   }
   rules: PaneThemeRules
 }
@@ -88,6 +106,9 @@ export const defaultTheme: PaneTheme = {
       danger: '#ef4444',
       success: '#22c55e',
       warning: '#f59e0b',
+      info: '#3b82f6',
+      overlay: 'rgba(0, 0, 0, 0.5)',
+      focusRing: 'rgba(59, 130, 246, 0.3)',
     },
     typography: {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -114,6 +135,17 @@ export const defaultTheme: PaneTheme = {
       md: '0.5rem',
       lg: '0.75rem',
       full: '9999px',
+    },
+    shadow: {
+      sm: '0 1px 2px rgba(0, 0, 0, 0.1)',
+      md: '0 2px 8px rgba(0, 0, 0, 0.15)',
+      lg: '0 8px 24px rgba(0, 0, 0, 0.2)',
+      none: 'none',
+    },
+    border: {
+      thin: '1px',
+      default: '2px',
+      thick: '3px',
     },
   },
   rules: {
@@ -158,6 +190,16 @@ export function themeToCssVars(theme: PaneTheme): Record<string, string> {
   // Radius
   for (const [key, value] of Object.entries(theme.tokens.radius)) {
     vars[`--pane-radius-${key}`] = value
+  }
+
+  // Shadows
+  for (const [key, value] of Object.entries(theme.tokens.shadow)) {
+    vars[`--pane-shadow-${key}`] = value
+  }
+
+  // Border widths
+  for (const [key, value] of Object.entries(theme.tokens.border)) {
+    vars[`--pane-border-${key}`] = value
   }
 
   return vars

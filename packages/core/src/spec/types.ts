@@ -14,6 +14,10 @@ export type AtomType =
   | 'frame'
   | 'icon'
   | 'spacer'
+  | 'badge'
+  | 'divider'
+  | 'progress'
+  | 'list'
 
 // ── Layout ──
 
