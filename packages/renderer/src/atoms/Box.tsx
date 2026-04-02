@@ -16,6 +16,7 @@ interface BoxProps {
   flex?: string
   interactive?: boolean
   glass?: boolean
+  fill?: boolean   // stretch to fill parent + internal scroll
   className?: string
   [key: string]: unknown
 }
@@ -35,6 +36,7 @@ export function Box({
   flex,
   interactive = false,
   glass = false,
+  fill = false,
   className,
   ...rest
 }: BoxProps) {
@@ -56,6 +58,13 @@ export function Box({
     border: border ?? `1px solid var(--pane-glass-border)`,
   } : {}
 
+  // Fill protocol: stretch to fill parent cell and scroll internally
+  const fillStyles: CSSProperties = fill ? {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+  } : {}
+
   const computedStyle: CSSProperties = {
     display: 'flex',
     flexDirection: direction,
@@ -73,6 +82,7 @@ export function Box({
       borderColor: 'var(--pane-color-text-muted)',
     } : {}),
     ...glassStyles,
+    ...fillStyles,
     ...style,
   }
 

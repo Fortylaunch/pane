@@ -23,12 +23,14 @@ interface PanelRendererProps {
   panel: PanePanel
   onAction?: (event: string, panelId: string, payload?: Record<string, unknown>) => void
   onFeedback?: (panelId: string, type: 'positive' | 'negative', source: string) => void
+  /** Set by parent Layout when this panel is a direct child of a stretch layout */
+  fill?: boolean
 }
 
 // Spring configs
 const PANEL_SPRING = { type: 'spring' as const, stiffness: 400, damping: 35 }
 
-export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRendererProps) {
+export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill }: PanelRendererProps) {
   // Expand recipe to atom tree if present
   const panel = rawPanel.recipe ? expandRecipe(rawPanel) : rawPanel
   const [showFeedback, setShowFeedback] = useState(false)
@@ -61,7 +63,7 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRe
     switch (atom) {
       case 'box':
         return (
-          <Box {...props as any}>
+          <Box {...props as any} fill={fill}>
             {renderedChildren}
           </Box>
         )
@@ -137,6 +139,8 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRe
         position: 'relative',
         paddingLeft: emphasis ? 'var(--pane-space-sm)' : undefined,
         ...emphasisStyle,
+        // Fill protocol: stretch wrapper to fill parent cell
+        ...(fill ? { flex: 1, minHeight: 0, overflow: 'hidden' } : {}),
       }}
       onMouseEnter={() => canFeedback && setShowFeedback(true)}
       onMouseLeave={() => setShowFeedback(false)}

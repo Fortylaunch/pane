@@ -3,7 +3,7 @@ import { PanelRenderer } from './PanelRenderer.js'
 import { Layout } from './layout/Layout.js'
 import { Input } from './atoms/Input.js'
 import { themeToStyleString } from '@pane/theme'
-import { createInput, createFeedback } from '@pane/core'
+import { createInput, createFeedback, LAYOUT_FILL_DEFAULTS } from '@pane/core'
 import { useCallback, useState, useMemo, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { TelemetryDrawer } from './TelemetryDrawer.js'
@@ -290,8 +290,8 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
         )}
       </AnimatePresence>
 
-      {/* View area */}
-      <div style={viewAreaStyle} data-pane-view>
+      {/* View area — overflow adapts to layout fill contract */}
+      <div style={getViewAreaStyle(activeContext?.view?.layout)} data-pane-view>
         <AnimatePresence mode="wait">
           {activeContext ? (
             <motion.div
@@ -303,9 +303,13 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
               style={getViewContentStyle(modality)}
             >
               <Layout config={activeContext.view.layout}>
-                {activeContext.view.panels.map(panel => (
-                  <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} />
-                ))}
+                {activeContext.view.panels.map(panel => {
+                  const layoutDefaults = LAYOUT_FILL_DEFAULTS[activeContext.view.layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
+                  const layoutFill = activeContext.view.layout.fill ?? layoutDefaults?.fill ?? 'start'
+                  return (
+                    <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} fill={layoutFill === 'stretch'} />
+                  )
+                })}
               </Layout>
             </motion.div>
           ) : (
@@ -462,13 +466,26 @@ const evalBarStyle: CSSProperties = {
   overflow: 'hidden',
 }
 
-const viewAreaStyle: CSSProperties = {
-  flex: 1,
-  overflowY: 'auto',
-  padding: '8px 12px',
-  display: 'flex',
-  flexDirection: 'column',
-  minHeight: 0,
+/**
+ * View area adapts to the layout's fill contract:
+ * - 'stretch' layouts: view area doesn't scroll — children fill it and manage own overflow
+ * - 'start' layouts: view area scrolls — content flows naturally and overflows vertically
+ */
+function getViewAreaStyle(layout?: { pattern: string; fill?: string }): CSSProperties {
+  const pattern = (layout?.pattern ?? 'stack') as keyof typeof LAYOUT_FILL_DEFAULTS
+  const defaults = LAYOUT_FILL_DEFAULTS[pattern] ?? LAYOUT_FILL_DEFAULTS.stack
+  const fill = layout?.fill ?? defaults.fill
+  const isStretch = fill === 'stretch'
+
+  return {
+    flex: 1,
+    padding: '8px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    // Fill contract: stretch layouts don't scroll at the view level
+    overflow: isStretch ? 'hidden' : 'auto',
+  }
 }
 
 // Modality-driven content sizing — conversational gets a centered column,
@@ -478,17 +495,17 @@ function getViewContentStyle(modality: string): CSSProperties {
 
   switch (modality) {
     case 'conversational':
-      return { ...base, maxWidth: '680px', margin: '0 auto' }
+      return { ...base, maxWidth: '680px', margin: '0 auto', overflow: 'auto' }
     case 'compositional':
-      return { ...base, maxWidth: '900px', margin: '0 auto' }
+      return { ...base, maxWidth: '900px', margin: '0 auto', overflow: 'auto' }
     case 'informational':
     case 'environmental':
     case 'collaborative':
-      return { ...base } // full width
+      return { ...base } // full width, overflow handled by children
     case 'transactional':
-      return { ...base, maxWidth: '560px', margin: '0 auto' }
+      return { ...base, maxWidth: '560px', margin: '0 auto', overflow: 'auto' }
     default:
-      return { ...base, maxWidth: '800px', margin: '0 auto' }
+      return { ...base, maxWidth: '800px', margin: '0 auto', overflow: 'auto' }
   }
 }
 

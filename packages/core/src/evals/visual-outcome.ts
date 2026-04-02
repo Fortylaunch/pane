@@ -7,6 +7,7 @@
 
 import type { EvalContext, EvalFinding } from './types.js'
 import type { PanePanel } from '../spec/types.js'
+import { LAYOUT_FILL_DEFAULTS } from '../spec/types.js'
 
 export function evalVisualOutcome(ctx: EvalContext): EvalFinding[] {
   const findings: EvalFinding[] = []
@@ -120,6 +121,58 @@ export function evalVisualOutcome(ctx: EvalContext): EvalFinding[] {
     })
   }
 
+  // Rule: Space utilization in stretch layouts
+  const layoutDefaults = LAYOUT_FILL_DEFAULTS[layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
+  const fillBehavior = layout.fill ?? layoutDefaults?.fill ?? 'start'
+
+  if (fillBehavior === 'stretch') {
+    // In stretch layouts, each direct child panel should have meaningful content
+    for (let i = 0; i < panels.length; i++) {
+      const panel = panels[i]
+      const totalAtoms = countTotalAtoms(panel)
+
+      if (totalAtoms < 2) {
+        findings.push({
+          dimension: 'visual-outcome',
+          grade: 'warn',
+          rule: 'stretch-utilization',
+          message: `Panel "${panel.id}" in ${layout.pattern} layout has only ${totalAtoms} atom(s) — will leave empty space in its column`,
+          suggestion: `Add content, a skeleton loader, or an empty-state message. Stretch layouts fill the viewport — sparse panels create dead space.`,
+        })
+      }
+    }
+
+    // Stretch layouts with only 1 panel should probably be a stack
+    if (layout.pattern === 'split' && panels.length === 1) {
+      findings.push({
+        dimension: 'visual-outcome',
+        grade: 'warn',
+        rule: 'stretch-single-panel',
+        message: `Split layout has only 1 panel — one column will be completely empty`,
+        suggestion: `Use stack layout instead, or add content for both columns. Split requires 2 substantive panels.`,
+      })
+    }
+  }
+
+  // Rule: Skeleton/loading states for data-dependent layouts
+  if (fillBehavior === 'stretch' && panelCount >= 2) {
+    let hasEmptyContainer = false
+    for (const panel of panels) {
+      if (panel.atom === 'box' && (!panel.children || panel.children.length === 0) && !panel.recipe) {
+        hasEmptyContainer = true
+      }
+    }
+    if (hasEmptyContainer) {
+      findings.push({
+        dimension: 'visual-outcome',
+        grade: 'warn',
+        rule: 'empty-container-in-stretch',
+        message: `Empty box container in ${layout.pattern} layout — renders as blank space`,
+        suggestion: `Add skeleton atoms as loading placeholders, or an empty-state text. Never leave a box empty in a stretch layout.`,
+      })
+    }
+  }
+
   if (findings.length === 0) {
     findings.push({
       dimension: 'visual-outcome',
@@ -160,6 +213,16 @@ function countEmphasis(panels: PanePanel[]): Record<string, number> {
     }
   }
   return counts
+}
+
+function countTotalAtoms(panel: PanePanel): number {
+  let count = 1 // the panel itself
+  if (panel.children) {
+    for (const child of panel.children) {
+      count += countTotalAtoms(child)
+    }
+  }
+  return count
 }
 
 function collectActions(panels: PanePanel[]): string[] {

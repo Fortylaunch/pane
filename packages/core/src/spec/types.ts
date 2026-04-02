@@ -35,6 +35,31 @@ export type LayoutPattern =
   | 'sidebar'
   | 'dashboard'
 
+/**
+ * Fill behavior for layout patterns.
+ *
+ * 'stretch' — children stretch to fill the layout's height/width.
+ *             Use for split, sidebar, dashboard where panels should
+ *             fill columns. Children manage their own overflow.
+ *
+ * 'start'   — children take their natural content height.
+ *             Use for stack, grid where content flows vertically
+ *             and the container scrolls.
+ *
+ * Each layout pattern has a default fill behavior (see LAYOUT_FILL_DEFAULTS).
+ * Agents can override per-view via the `fill` field.
+ */
+export type LayoutFill = 'stretch' | 'start'
+
+/**
+ * Overflow strategy for layout children.
+ *
+ * 'scroll'  — children that exceed their allocated space scroll internally.
+ * 'visible' — content overflows visibly (container scrolls instead).
+ * 'clip'    — content is clipped at the boundary.
+ */
+export type LayoutOverflow = 'scroll' | 'visible' | 'clip'
+
 export interface LayoutConfig {
   pattern: LayoutPattern
   ratio?: string            // for split: "1:1", "1:2", "2:1"
@@ -44,6 +69,24 @@ export interface LayoutConfig {
   minWidth?: string         // for grid autoFill: min column width, e.g. "280px"
   sidebarWidth?: string     // for sidebar: e.g. "280px"
   sidebarPosition?: 'left' | 'right'  // for sidebar: default 'left'
+  fill?: LayoutFill         // override default fill behavior
+  overflow?: LayoutOverflow // override default overflow strategy
+}
+
+/**
+ * Default fill and overflow contracts per layout pattern.
+ * These define the system-level behavior — agents don't need to
+ * specify these unless overriding.
+ */
+export const LAYOUT_FILL_DEFAULTS: Record<LayoutPattern, { fill: LayoutFill; overflow: LayoutOverflow }> = {
+  stack:     { fill: 'start',   overflow: 'visible' },
+  split:     { fill: 'stretch', overflow: 'scroll' },
+  grid:      { fill: 'start',   overflow: 'visible' },
+  tabs:      { fill: 'stretch', overflow: 'scroll' },
+  overlay:   { fill: 'stretch', overflow: 'clip' },
+  flow:      { fill: 'start',   overflow: 'visible' },
+  sidebar:   { fill: 'stretch', overflow: 'scroll' },
+  dashboard: { fill: 'stretch', overflow: 'scroll' },
 }
 
 // ── Panels ──

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { LayoutConfig } from '@pane/core'
+import { LAYOUT_FILL_DEFAULTS } from '@pane/core'
 
 interface LayoutProps {
   config: LayoutConfig
@@ -13,16 +14,28 @@ export function Layout({ config, children }: LayoutProps) {
 
 function getLayoutStyle(config: LayoutConfig): CSSProperties {
   const gap = config.gap ?? 'var(--pane-space-sm)'
+  const defaults = LAYOUT_FILL_DEFAULTS[config.pattern] ?? LAYOUT_FILL_DEFAULTS.stack
+  const fill = config.fill ?? defaults.fill
+  const isStretch = fill === 'stretch'
 
+  // Base styles shared by all patterns
   const base: CSSProperties = {
     width: '100%',
-    minHeight: 0,
     gap,
+    // Fill contract: stretch layouts expand to fill parent and constrain children
+    ...(isStretch ? {
+      flex: 1,
+      minHeight: 0,
+    } : {}),
   }
 
   switch (config.pattern) {
     case 'stack':
-      return { ...base, display: 'flex', flexDirection: 'column' }
+      return {
+        ...base,
+        display: 'flex',
+        flexDirection: 'column',
+      }
 
     case 'split': {
       const [left, right] = (config.ratio ?? '1:1').split(':').map(Number)
@@ -30,7 +43,8 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         ...base,
         display: 'grid',
         gridTemplateColumns: `${left}fr ${right}fr`,
-        alignItems: 'start',
+        // Fill contract: stretch means children fill their column
+        alignItems: isStretch ? 'stretch' : 'start',
       }
     }
 
@@ -40,24 +54,39 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
           ...base,
           display: 'grid',
           gridTemplateColumns: `repeat(auto-fill, minmax(${config.minWidth}, 1fr))`,
-          alignItems: 'start',
+          alignItems: isStretch ? 'stretch' : 'start',
+          alignContent: 'start',
         }
       }
       return {
         ...base,
         display: 'grid',
         gridTemplateColumns: `repeat(${config.columns ?? 2}, 1fr)`,
-        alignItems: 'start',
+        alignItems: isStretch ? 'stretch' : 'start',
+        alignContent: 'start',
       }
 
     case 'tabs':
-      return { ...base, display: 'flex', flexDirection: 'column' }
+      return {
+        ...base,
+        display: 'flex',
+        flexDirection: 'column',
+      }
 
     case 'overlay':
-      return { ...base, position: 'relative', flex: 1 }
+      return {
+        ...base,
+        position: 'relative',
+      }
 
     case 'flow':
-      return { ...base, display: 'flex', flexDirection: 'row', overflowX: 'auto', alignItems: 'start' }
+      return {
+        ...base,
+        display: 'flex',
+        flexDirection: 'row',
+        overflowX: 'auto',
+        alignItems: isStretch ? 'stretch' : 'start',
+      }
 
     case 'sidebar': {
       const sw = config.sidebarWidth ?? '240px'
@@ -66,8 +95,6 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         ...base,
         display: 'grid',
         gridTemplateColumns: pos === 'left' ? `${sw} 1fr` : `1fr ${sw}`,
-        flex: 1,
-        minHeight: 0,
         alignItems: 'stretch',
       }
     }
@@ -78,11 +105,13 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         display: 'grid',
         gridTemplateColumns: '1fr',
         gridTemplateRows: 'auto 1fr auto',
-        flex: 1,
-        minHeight: 0,
       }
 
     default:
-      return { ...base, display: 'flex', flexDirection: 'column' }
+      return {
+        ...base,
+        display: 'flex',
+        flexDirection: 'column',
+      }
   }
 }

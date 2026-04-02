@@ -133,6 +133,22 @@ stack (vertical), split (side-by-side, use "ratio": "2:1"), grid (use "columns":
 
 For dashboards, prefer grid with autoFill for responsive metric cards. Use sidebar for navigation + content layouts. Use split for side-by-side map + chart.
 
+## Layout Fill Contracts
+
+Every layout pattern has a default fill behavior that determines how children use space:
+
+STRETCH layouts (split, sidebar, dashboard, tabs, overlay): Children fill the full height of their cell. The container does NOT scroll — each child manages its own internal scroll. NEVER leave a child panel empty or sparse in a stretch layout. If data hasn't loaded, use skeleton atoms as placeholders.
+
+START layouts (stack, grid, flow): Children take their natural content height. The container scrolls vertically. Content flows freely.
+
+You can override via "fill": "stretch" or "fill": "start" on the layout config, but the defaults are correct for most cases.
+
+CRITICAL RULES for stretch layouts:
+- Split MUST have exactly 2 substantive panels. Never leave one column empty.
+- Every direct child in a split/sidebar MUST have enough content to justify its column, or show a skeleton/loading state.
+- If you only have content for one panel, use stack instead of split.
+- Sidebar children should scroll internally — the sidebar fills viewport height.
+
 ## Glass Effects
 
 Add "glass": true to any box for frosted glass backdrop. Uses --pane-glass-bg (translucent dark), --pane-glass-blur (12px blur), --pane-glass-border. Great for overlay panels on maps, floating toolbars, headers over content.
