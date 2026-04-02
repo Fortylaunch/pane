@@ -127,6 +127,41 @@ export function evalDesignQuality(ctx: EvalContext): EvalFinding[] {
     })
   }
 
+  // ── Yablonski: Row child overflow ──
+  // Boxes with direction:row and too many children will compress items to unusable widths
+
+  const rowBoxes = allPanels.filter(p =>
+    p.atom === 'box' &&
+    p.children && p.children.length > 0 &&
+    (p.props?.direction === 'row')
+  )
+
+  for (const box of rowBoxes) {
+    const childCount = box.children!.length
+    const hasMinChildWidth = !!box.props?.minChildWidth
+    const hasWrapDisabled = box.props?.wrap === false
+
+    if (childCount > 5 && !hasMinChildWidth) {
+      findings.push({
+        dimension: 'design-quality' as any,
+        grade: 'warn',
+        rule: 'yablonski:row-overflow',
+        message: `Box "${box.id}" has ${childCount} children in a row without minChildWidth — items will compress to unusable widths`,
+        suggestion: `Add minChildWidth: "180px" to use CSS grid auto-fill, or use the stat-grid recipe. Max 4-5 items per row without explicit min-width.`,
+      })
+    }
+
+    if (childCount > 3 && hasWrapDisabled) {
+      findings.push({
+        dimension: 'design-quality' as any,
+        grade: 'warn',
+        rule: 'yablonski:nowrap-overflow',
+        message: `Box "${box.id}" has ${childCount} children in a no-wrap row — items will overflow or compress`,
+        suggestion: `Remove wrap: false or add minChildWidth. Row containers with >3 items should always wrap.`,
+      })
+    }
+  }
+
   // ── Tufte: Metric card hierarchy ──
 
   const metricPanels = allPanels.filter(p => p.recipe === 'metric')

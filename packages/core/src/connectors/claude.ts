@@ -122,6 +122,7 @@ DASHBOARD — Composed dashboard layout. "recipe": "dashboard", "props": { "titl
 
 ## Critical Panel Rules
 
+- When placing multiple cards/metrics in a row, ALWAYS use either: (1) the stat-grid recipe, or (2) a box with direction:"row" AND minChildWidth:"180px". NEVER put >4 items in a row without minChildWidth — items will compress to unusable widths. The system enforces flex-wrap on all row boxes by default.
 - The ONLY valid atom values are: box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list, chart, skeleton, pill, map. There is NO "button" atom — use input with type:"button". There is NO "textarea" atom — use input with type:"textarea". There is NO "label" atom — use text with level:"label".
 - Every panel MUST have "atom", "id", "props", and "source": "claude"
 - Use "children" array to nest panels inside box atoms

@@ -11,12 +11,14 @@ interface BoxProps {
   padding?: string
   gap?: string
   direction?: 'row' | 'column'
+  wrap?: boolean             // flex-wrap (default: true for row direction)
+  minChildWidth?: string     // min-width per child, e.g. "180px"
   align?: string
   justify?: string
   flex?: string
   interactive?: boolean
   glass?: boolean
-  fill?: boolean   // stretch to fill parent + internal scroll
+  fill?: boolean
   className?: string
   [key: string]: unknown
 }
@@ -31,6 +33,8 @@ export function Box({
   padding,
   gap,
   direction = 'column',
+  wrap,
+  minChildWidth,
   align,
   justify,
   flex,
@@ -65,17 +69,26 @@ export function Box({
     overflowY: 'auto',
   } : {}
 
+  // Row direction defaults to flex-wrap to prevent child compression
+  const shouldWrap = wrap ?? (direction === 'row')
+
+  // If minChildWidth is set on a row, use CSS grid auto-fill for guaranteed minimum sizing
+  const useGrid = !!minChildWidth && direction === 'row'
+
+  const layoutStyles: CSSProperties = useGrid
+    ? { display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${minChildWidth}, 1fr))` }
+    : { display: 'flex', flexDirection: direction, flexWrap: shouldWrap ? 'wrap' : 'nowrap' }
+
   const computedStyle: CSSProperties = {
-    display: 'flex',
-    flexDirection: direction,
+    ...layoutStyles,
     color: textColor,
     background: enforcedBg ?? (hasBorder && !glass ? 'var(--pane-color-surface)' : 'transparent'),
     border: border ?? (borderColor ? `1px solid ${borderColor}` : (hasBorder && !background && !glass) ? '1px solid var(--pane-color-border)' : 'none'),
     borderRadius: radius ?? '0px',
     padding: padding ?? (hasBorder ? 'var(--pane-space-md)' : 'var(--pane-space-xs)'),
     gap: gap ?? 'var(--pane-space-xs)',
-    alignItems: align,
-    justifyContent: justify,
+    alignItems: useGrid ? undefined : align,
+    justifyContent: useGrid ? undefined : justify,
     flex,
     transition: 'border-color 0.15s ease',
     ...(hovered && interactive ? {
