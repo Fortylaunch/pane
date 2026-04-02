@@ -12,9 +12,12 @@ export function Layout({ config, children }: LayoutProps) {
 }
 
 function getLayoutStyle(config: LayoutConfig): CSSProperties {
+  const gap = config.gap ?? 'var(--pane-space-sm)'
+
   const base: CSSProperties = {
     width: '100%',
-    gap: config.gap ?? 'var(--pane-space-sm)',
+    minHeight: 0,
+    gap,
   }
 
   switch (config.pattern) {
@@ -27,6 +30,7 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         ...base,
         display: 'grid',
         gridTemplateColumns: `${left}fr ${right}fr`,
+        alignItems: 'start',
       }
     }
 
@@ -36,32 +40,35 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
           ...base,
           display: 'grid',
           gridTemplateColumns: `repeat(auto-fill, minmax(${config.minWidth}, 1fr))`,
+          alignItems: 'start',
         }
       }
       return {
         ...base,
         display: 'grid',
         gridTemplateColumns: `repeat(${config.columns ?? 2}, 1fr)`,
+        alignItems: 'start',
       }
 
     case 'tabs':
-      // Tabs render only the active tab — handled by TabLayout
       return { ...base, display: 'flex', flexDirection: 'column' }
 
     case 'overlay':
-      return { ...base, position: 'relative' }
+      return { ...base, position: 'relative', flex: 1 }
 
     case 'flow':
-      return { ...base, display: 'flex', flexDirection: 'row', overflowX: 'auto' }
+      return { ...base, display: 'flex', flexDirection: 'row', overflowX: 'auto', alignItems: 'start' }
 
     case 'sidebar': {
-      const sw = config.sidebarWidth ?? '280px'
+      const sw = config.sidebarWidth ?? '240px'
       const pos = config.sidebarPosition ?? 'left'
       return {
         ...base,
         display: 'grid',
         gridTemplateColumns: pos === 'left' ? `${sw} 1fr` : `1fr ${sw}`,
-        height: '100%',
+        flex: 1,
+        minHeight: 0,
+        alignItems: 'stretch',
       }
     }
 
@@ -71,7 +78,8 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         display: 'grid',
         gridTemplateColumns: '1fr',
         gridTemplateRows: 'auto 1fr auto',
-        height: '100%',
+        flex: 1,
+        minHeight: 0,
       }
 
     default:

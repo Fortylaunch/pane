@@ -29,12 +29,13 @@ const visualEvaluator = useStarter ? undefined : createClaudeVisualEvaluator({
 
 const pane = createPane({
   agent,
+  specEvalEnabled: false,  // Toggle via UI — default off
   visualEval: visualEvaluator ? {
     captureScreen: () => capturePane({ scale: 0.5, quality: 0.6, format: 'jpeg' }),
     evaluateVisual: visualEvaluator,
-    captureDelay: 1500,    // wait 1.5s after render for animations to settle
+    captureDelay: 1500,
     maxCorrections: 1,
-    enabled: true,
+    enabled: false,  // Toggle via UI — default off
   } : undefined,
 })
 

@@ -82,6 +82,20 @@ export function PaneRenderer() {
   const evalResult = runtime.getLastEvalResult?.()
   const evalIssues = evalResult?.findings?.filter((f: any) => f.grade !== 'pass') ?? []
   const [showEval, setShowEval] = useState(false)
+  const [specEvalOn, setSpecEvalOn] = useState(() => runtime.isSpecEvalEnabled?.() ?? false)
+  const [visualEvalOn, setVisualEvalOn] = useState(() => runtime.isVisualEvalEnabled?.() ?? false)
+
+  const toggleSpecEval = useCallback(() => {
+    const next = !specEvalOn
+    setSpecEvalOn(next)
+    runtime.setSpecEvalEnabled?.(next)
+  }, [specEvalOn, runtime])
+
+  const toggleVisualEval = useCallback(() => {
+    const next = !visualEvalOn
+    setVisualEvalOn(next)
+    runtime.setVisualEvalEnabled?.(next)
+  }, [visualEvalOn, runtime])
 
   return (
     <div style={shellStyle} data-pane-root>
@@ -217,27 +231,33 @@ export function PaneRenderer() {
               {activeContext.label || modality}
             </span>
           </div>
-          {evalResult && (
-            <button
-              onClick={() => setShowEval(v => !v)}
-              style={{
-                ...contextTabStyle,
-                fontSize: '10px',
-                padding: '2px 8px',
-                color: evalResult.overallGrade === 'pass' ? 'var(--pane-color-success)'
-                  : evalResult.overallGrade === 'warn' ? 'var(--pane-color-warning)'
-                  : 'var(--pane-color-danger)',
-              }}
-            >
-              EVAL {evalResult.overallGrade.toUpperCase()} · {evalIssues.length} issue{evalIssues.length !== 1 ? 's' : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+            <button onClick={toggleSpecEval} style={{ ...toggleBtnStyle, color: specEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
+              6D {specEvalOn ? 'ON' : 'OFF'}
             </button>
-          )}
+            <button onClick={toggleVisualEval} style={{ ...toggleBtnStyle, color: visualEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
+              VIS {visualEvalOn ? 'ON' : 'OFF'}
+            </button>
+            {evalResult && specEvalOn && (
+              <button
+                onClick={() => setShowEval(v => !v)}
+                style={{
+                  ...toggleBtnStyle,
+                  color: evalResult.overallGrade === 'pass' ? 'var(--pane-color-success)'
+                    : evalResult.overallGrade === 'warn' ? 'var(--pane-color-warning)'
+                    : 'var(--pane-color-danger)',
+                }}
+              >
+                {evalResult.overallGrade.toUpperCase()} · {evalIssues.length}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       {/* Eval findings panel */}
       <AnimatePresence>
-        {showEval && evalIssues.length > 0 && (
+        {showEval && specEvalOn && evalIssues.length > 0 && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -270,7 +290,7 @@ export function PaneRenderer() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              style={{ width: '100%', height: '100%' }}
+              style={getViewContentStyle(modality)}
             >
               <Layout config={activeContext.view.layout}>
                 {activeContext.view.panels.map(panel => (
@@ -435,9 +455,31 @@ const evalBarStyle: CSSProperties = {
 const viewAreaStyle: CSSProperties = {
   flex: 1,
   overflowY: 'auto',
-  padding: '6px 8px',
+  padding: '8px 12px',
   display: 'flex',
   flexDirection: 'column',
+  minHeight: 0,
+}
+
+// Modality-driven content sizing — conversational gets a centered column,
+// informational/environmental fill the viewport, others get a comfortable max-width
+function getViewContentStyle(modality: string): CSSProperties {
+  const base: CSSProperties = { width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }
+
+  switch (modality) {
+    case 'conversational':
+      return { ...base, maxWidth: '680px', margin: '0 auto' }
+    case 'compositional':
+      return { ...base, maxWidth: '900px', margin: '0 auto' }
+    case 'informational':
+    case 'environmental':
+    case 'collaborative':
+      return { ...base } // full width
+    case 'transactional':
+      return { ...base, maxWidth: '560px', margin: '0 auto' }
+    default:
+      return { ...base, maxWidth: '800px', margin: '0 auto' }
+  }
 }
 
 const emptyStateStyle: CSSProperties = {
@@ -519,6 +561,18 @@ function modalityDotStyle(modality: string): CSSProperties {
     display: 'inline-block',
     flexShrink: 0,
   }
+}
+
+const toggleBtnStyle: CSSProperties = {
+  padding: '2px 6px',
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  transition: 'color 0.15s ease',
 }
 
 const observabilityStyle: CSSProperties = {

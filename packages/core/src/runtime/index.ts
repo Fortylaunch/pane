@@ -34,6 +34,7 @@ export interface PaneRuntimeConfig {
   agent: PaneAgent
   tickInterval?: number     // ms — how often to call agent.tick(). 0 = disabled.
   visualEval?: VisualEvalConfig  // post-render visual evaluation
+  specEvalEnabled?: boolean // 6D spec eval after each response (default: false)
 }
 
 export type SessionListener = (session: PaneSession) => void
@@ -49,10 +50,14 @@ export class PaneRuntime {
   private visualEval: VisualEvalConfig | null = null
   private visualEvalRunning = false
   private lastEvalResult: EvalResult | null = null
+  private specEvalEnabled = false
+  private _visualEvalEnabled = false
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
     this.visualEval = config.visualEval ?? null
+    this.specEvalEnabled = config.specEvalEnabled ?? false
+    this._visualEvalEnabled = config.visualEval?.enabled ?? false
     this.actions = new ActionManager()
     this.feedbackStore = new FeedbackStore()
 
@@ -135,11 +140,15 @@ export class PaneRuntime {
 
     this.applyUpdate(update)
 
-    // Run 6D spec eval on the updated session
-    this.runSpecEval(update, dur)
+    // Run 6D spec eval on the updated session (if enabled)
+    if (this.specEvalEnabled) {
+      this.runSpecEval(update, dur)
+    }
 
     // Trigger visual eval AFTER render — runs async, doesn't block the return
-    this.runVisualEval()
+    if (this._visualEvalEnabled) {
+      this.runVisualEval()
+    }
 
     return this.session
   }
@@ -187,6 +196,25 @@ export class PaneRuntime {
 
   getLastEvalResult(): EvalResult | null {
     return this.lastEvalResult
+  }
+
+  setSpecEvalEnabled(enabled: boolean) {
+    this.specEvalEnabled = enabled
+  }
+
+  isSpecEvalEnabled(): boolean {
+    return this.specEvalEnabled
+  }
+
+  setVisualEvalEnabled(enabled: boolean) {
+    this._visualEvalEnabled = enabled
+    if (this.visualEval) {
+      this.visualEval.enabled = enabled
+    }
+  }
+
+  isVisualEvalEnabled(): boolean {
+    return this._visualEvalEnabled
   }
 
   subscribe(listener: SessionListener): () => void {
@@ -244,7 +272,7 @@ export class PaneRuntime {
   }
 
   private async runVisualEval() {
-    if (!this.visualEval || !this.visualEval.enabled || this.visualEvalRunning) return
+    if (!this.visualEval || !this._visualEvalEnabled || this.visualEvalRunning) return
     this.visualEvalRunning = true
 
     const { captureScreen, evaluateVisual, captureDelay = 1200, maxCorrections = 1 } = this.visualEval
