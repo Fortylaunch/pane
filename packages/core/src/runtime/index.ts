@@ -25,6 +25,7 @@ import { decomposeAndAssemble, shouldDecompose, type DecomposeConfig } from '../
 import { patchView } from '../mutations/patch.js'
 import { classifyMutation } from '../mutations/classifier.js'
 import { getMutationClaudePrompt } from '../mutations/registry.js'
+import { planLayout, planToScaffold, type LayoutPlan } from '../mutations/layout-planner.js'
 
 export interface VisualEvalConfig {
   captureScreen: () => Promise<string>
@@ -131,16 +132,13 @@ export class PaneRuntime {
   // ── Public API ──
 
   async init(input: PaneInput): Promise<PaneSession> {
-    const update = await this.agent.init(input)
-    this.applyUpdate(update)
-    this.addConversationEntry('user', input.content, input.timestamp)
-    this.initialized = true
-    return this.session
+    return this.handleInput(input)
   }
 
   async handleInput(input: PaneInput): Promise<PaneSession> {
-    if (!this.initialized) {
-      return this.init(input)
+    const isFirst = !this.initialized
+    if (isFirst) {
+      this.initialized = true
     }
 
     emitTelemetry('agent:request', {
@@ -183,10 +181,41 @@ export class PaneRuntime {
     // Build mutation context for Claude
     const mutationPrompt = getMutationClaudePrompt(classification, currentView)
 
+    // Layout planning — for REPLACE_VIEW on existing views, plan grid and scaffold
+    let layoutPlan: LayoutPlan | null = null
+    if (classification.type === 'REPLACE_VIEW' && !isFirst) {
+      layoutPlan = planLayout(input.content, classification, activeCtx?.modality)
+
+      emitTelemetry('agent:request', {
+        type: 'layout-plan',
+        layout: layoutPlan.layout.pattern,
+        slotCount: layoutPlan.slots.length,
+        modality: layoutPlan.modality,
+      }, { preview: `Layout: ${layoutPlan.layout.pattern} with ${layoutPlan.slots.length} slots (${layoutPlan.slots.map(s => s.label).join(', ')})` })
+
+      // Render scaffold immediately — user sees the grid with loading indicators
+      const scaffold = planToScaffold(layoutPlan, 'layout-planner')
+      this.applyUpdate({
+        contexts: [{
+          id: this.session.activeContext || 'main',
+          operation: this.session.contexts.length === 0 ? 'create' : 'update',
+          label: layoutPlan.slots[0]?.label ?? 'Loading',
+          modality: layoutPlan.modality,
+          view: scaffold,
+        }],
+        agents: [{ id: 'claude', name: 'Claude', state: 'working', currentTask: 'Generating content...', lastActive: Date.now() }],
+      })
+    }
+
+    // Build session context for agent — include layout plan so Claude fills slots
+    const layoutContext = layoutPlan
+      ? `\nLAYOUT PLAN: ${layoutPlan.layout.pattern} layout with slots: ${layoutPlan.slots.map(s => `${s.id} (${s.label}, ${s.role})`).join(', ')}. Generate panels matching these slot IDs. Use slot ID as the panel ID prefix.`
+      : ''
+
     const sessionForAgent = Object.assign({}, this.session, {
       ...(allFeedback.length > 0 ? { __lastEvalFindings: allFeedback } : {}),
       __mutationClassification: classification,
-      __mutationPrompt: mutationPrompt,
+      __mutationPrompt: mutationPrompt + layoutContext,
       __screenCapture: screenCapture,
     })
 
@@ -225,7 +254,9 @@ export class PaneRuntime {
       if (this.specEvalEnabled) this.runSpecEval(update, dur)
     } else {
       const start = performance.now()
-      const update = await this.agent.onInput(input, sessionForAgent)
+      const update = isFirst
+        ? await this.agent.init(input)
+        : await this.agent.onInput(input, sessionForAgent)
       const dur = Math.round(performance.now() - start)
 
       emitTelemetry('agent:response', {
