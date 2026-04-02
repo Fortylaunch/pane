@@ -208,6 +208,20 @@ After composing, verify:
 
 If any test fails, revise before returning.
 
+## View Mutations
+
+When the system classifies a request as a partial mutation, you will receive a MUTATION MODE block. Follow its instructions:
+
+- ADD_PANELS: Return ONLY the new panels in a patch. Do NOT regenerate existing panels.
+- REMOVE_PANELS: Return ONLY the panel IDs to remove in a patch.
+- UPDATE_PANELS: Return ONLY the changed panels with updated props/children (matching IDs).
+- REORDER_PANELS: Return the new panel order as an array of panel IDs.
+- REPLACE_VIEW: Return a full view as usual (default).
+
+Patch format: { "update": { "contexts": [{ "id": "main", "operation": "update", "patch": { "type": "ADD_PANELS", "panels": [...] } }] } }
+
+If no MUTATION MODE block is present, return a full view as usual.
+
 ## Response Format
 
 Respond with a JSON object containing TWO fields:
@@ -254,18 +268,36 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
       ...(evalFindings && evalFindings.length > 0 ? { evalIssuesFromLastResponse: evalFindings } : {}),
     }, null, 2)
 
+    // Mutation context
+    const mutationPrompt = (session as any).__mutationPrompt as string | undefined
+    const screenCapture = (session as any).__screenCapture as string | undefined
+
+    // Build message content — include screen capture as vision if available
+    let messageContent: any
+    const textParts = [
+      mutationPrompt ? `${mutationPrompt}\n\n` : '',
+      isFirst ? '' : `Session state:\n${sessionContext}\n\n`,
+      `User input: ${userMessage}`,
+    ].join('')
+
+    if (screenCapture && !isFirst) {
+      const base64 = screenCapture.includes(',') ? screenCapture.split(',')[1] : screenCapture
+      const mediaType = screenCapture.includes('image/png') ? 'image/png' : 'image/jpeg'
+      messageContent = [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        { type: 'text', text: textParts },
+      ]
+    } else {
+      messageContent = textParts
+    }
+
     const requestBody = JSON.stringify({
       model,
       max_tokens: maxTokens,
       ...(shouldStream ? { stream: true } : {}),
       system: systemPrompt,
       messages: [
-        {
-          role: 'user',
-          content: isFirst
-            ? `User input: ${userMessage}`
-            : `Session state:\n${sessionContext}\n\nUser input: ${userMessage}`,
-        },
+        { role: 'user', content: messageContent },
       ],
     })
 
@@ -502,14 +534,30 @@ function normalizeUpdate(raw: any, isFirst: boolean): PaneSessionUpdate {
   const update: PaneSessionUpdate = {}
 
   if (raw.contexts && Array.isArray(raw.contexts)) {
-    update.contexts = raw.contexts.map((ctx: any) => ({
-      id: ctx.id ?? 'main',
-      operation: ctx.operation ?? (isFirst ? 'create' : 'update'),
-      label: ctx.label,
-      modality: ctx.modality ?? 'conversational',
-      view: ctx.view ? normalizeView(ctx.view) : undefined,
-      status: ctx.status,
-    }))
+    update.contexts = raw.contexts.map((ctx: any) => {
+      const base: any = {
+        id: ctx.id ?? 'main',
+        operation: ctx.operation ?? (isFirst ? 'create' : 'update'),
+        label: ctx.label,
+        modality: ctx.modality ?? 'conversational',
+        status: ctx.status,
+      }
+
+      // Handle patch-based mutations
+      if (ctx.patch) {
+        base.patch = {
+          ...ctx.patch,
+          panels: ctx.patch.panels ? ctx.patch.panels.map(normalizePanel) : undefined,
+        }
+      }
+
+      // Handle full view
+      if (ctx.view) {
+        base.view = normalizeView(ctx.view)
+      }
+
+      return base
+    })
   }
 
   if (raw.actions) update.actions = raw.actions

@@ -22,6 +22,9 @@ import { emitTelemetry } from '../telemetry/index.js'
 import { runEval, formatEvalResult } from '../evals/runner.js'
 import type { EvalResult } from '../evals/types.js'
 import { decomposeAndAssemble, shouldDecompose, type DecomposeConfig } from '../decompose/index.js'
+import { patchView } from '../mutations/patch.js'
+import { classifyMutation } from '../mutations/classifier.js'
+import { getMutationClaudePrompt } from '../mutations/registry.js'
 
 export interface VisualEvalConfig {
   captureScreen: () => Promise<string>
@@ -56,6 +59,7 @@ export interface PaneRuntimeConfig {
   specEvalEnabled?: boolean // 6D spec eval after each response (default: false)
   decompose?: DecomposeConfig   // request decomposition for complex views
   designReview?: DesignReviewConfig // pre-render design review loop
+  captureScreen?: () => Promise<string>  // lightweight screen capture for mutation context
 }
 
 export type SessionListener = (session: PaneSession) => void
@@ -76,6 +80,7 @@ export class PaneRuntime {
   private decomposeConfig: DecomposeConfig | null = null
   private designFeedback: string[] = []
   private designReview: DesignReviewConfig | null = null
+  private captureScreenFn: (() => Promise<string>) | null = null
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
@@ -84,6 +89,7 @@ export class PaneRuntime {
     this._visualEvalEnabled = config.visualEval?.enabled ?? false
     this.decomposeConfig = config.decompose ?? null
     this.designReview = config.designReview ?? null
+    this.captureScreenFn = config.captureScreen ?? null
     this.actions = new ActionManager()
     this.feedbackStore = new FeedbackStore()
 
@@ -154,9 +160,35 @@ export class PaneRuntime {
 
     const allFeedback = [...evalFindings, ...this.designFeedback]
 
-    const sessionForAgent = allFeedback.length > 0
-      ? Object.assign({}, this.session, { __lastEvalFindings: allFeedback })
-      : this.session
+    // Classify mutation type (deterministic, <1ms)
+    const activeCtx = this.session.contexts.find(c => c.id === this.session.activeContext)
+    const currentView = activeCtx?.view ?? null
+    const classification = classifyMutation(input.content, currentView)
+
+    emitTelemetry('agent:request', {
+      type: 'mutation-classify',
+      mutationType: classification.type,
+      confidence: classification.confidence,
+      affectedPanelIds: classification.affectedPanelIds,
+    }, { preview: `Mutation: ${classification.type} (${Math.round(classification.confidence * 100)}%) — ${classification.reason}` })
+
+    // Capture screen for partial mutations (lightweight JPEG)
+    let screenCapture: string | undefined
+    if (this.captureScreenFn && currentView && classification.type !== 'REPLACE_VIEW') {
+      try {
+        screenCapture = await this.captureScreenFn()
+      } catch {}
+    }
+
+    // Build mutation context for Claude
+    const mutationPrompt = getMutationClaudePrompt(classification, currentView)
+
+    const sessionForAgent = Object.assign({}, this.session, {
+      ...(allFeedback.length > 0 ? { __lastEvalFindings: allFeedback } : {}),
+      __mutationClassification: classification,
+      __mutationPrompt: mutationPrompt,
+      __screenCapture: screenCapture,
+    })
 
     // Clear design feedback after it's been sent (one-shot)
     if (this.designFeedback.length > 0) {
@@ -525,6 +557,24 @@ export class PaneRuntime {
       nextSession.artifacts = [...artifactMap.values()]
     }
 
+    // Track last mutation for renderer animation decisions
+    if (update.contexts) {
+      const patchUpdate = update.contexts.find(cu => cu.patch)
+      if (patchUpdate?.patch) {
+        nextSession.lastMutation = {
+          type: patchUpdate.patch.type,
+          affectedPanelIds: patchUpdate.patch.panelIds ?? patchUpdate.patch.panels?.map(p => p.id) ?? [],
+          timestamp: Date.now(),
+        }
+      } else {
+        nextSession.lastMutation = {
+          type: 'REPLACE_VIEW',
+          affectedPanelIds: [],
+          timestamp: Date.now(),
+        }
+      }
+    }
+
     nextSession.version = nextSession.version + 1
     this.session = nextSession
     this.syncActionsToSession()
@@ -581,6 +631,20 @@ function applyContextUpdate(contexts: PaneContext[], update: PaneContextUpdate):
     case 'update': {
       return contexts.map(c => {
         if (c.id !== update.id) return c
+
+        // Patch-based mutation — apply ViewPatch instead of replacing view
+        if (update.patch) {
+          const patchedView = patchView(c.view, update.patch)
+          return {
+            ...c,
+            ...(update.label !== undefined && { label: update.label }),
+            ...(update.modality !== undefined && { modality: update.modality }),
+            view: patchedView,
+            ...(update.status !== undefined && { status: update.status }),
+          }
+        }
+
+        // Full view replacement (existing behavior)
         return {
           ...c,
           ...(update.label !== undefined && { label: update.label }),

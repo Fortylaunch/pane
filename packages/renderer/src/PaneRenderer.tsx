@@ -86,6 +86,8 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
   const evalResult = runtime.getLastEvalResult?.()
   const evalIssues = evalResult?.findings?.filter((f: any) => f.grade !== 'pass') ?? []
   const [showEval, setShowEval] = useState(false)
+  const isReplaceView = !session.lastMutation || session.lastMutation.type === 'REPLACE_VIEW'
+
   const [specEvalOn, setSpecEvalOn] = useState(() => runtime.isSpecEvalEnabled?.() ?? false)
   const [visualEvalOn, setVisualEvalOn] = useState(() => runtime.isVisualEvalEnabled?.() ?? false)
   const [designReviewOn, setDesignReviewOn] = useState(() => runtime.isDesignReviewEnabled?.() ?? false)
@@ -302,24 +304,29 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
 
       {/* View area — overflow adapts to layout fill contract */}
       <div style={getViewAreaStyle(activeContext?.view?.layout)} data-pane-view>
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode={isReplaceView ? 'wait' : 'popLayout'}>
           {activeContext ? (
             <motion.div
-              key={activeContext.id + '-' + session.version}
-              initial={{ opacity: 0 }}
+              key={activeContext.id + (isReplaceView ? '-' + session.version : '-stable')}
+              initial={isReplaceView ? { opacity: 0 } : false}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              exit={isReplaceView ? { opacity: 0 } : undefined}
               transition={{ duration: 0.15 }}
               style={getViewContentStyle(modality)}
             >
               <Layout config={activeContext.view.layout}>
-                {activeContext.view.panels.map(panel => {
-                  const layoutDefaults = LAYOUT_FILL_DEFAULTS[activeContext.view.layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
-                  const layoutFill = activeContext.view.layout.fill ?? layoutDefaults?.fill ?? 'start'
-                  return (
-                    <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} fill={layoutFill === 'stretch'} />
-                  )
-                })}
+                <AnimatePresence>
+                  {activeContext.view.panels.map(panel => {
+                    const layoutDefaults = LAYOUT_FILL_DEFAULTS[activeContext.view.layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
+                    const layoutFill = activeContext.view.layout.fill ?? layoutDefaults?.fill ?? 'start'
+                    const mutationHint = session.lastMutation?.affectedPanelIds?.includes(panel.id)
+                      ? session.lastMutation.type
+                      : undefined
+                    return (
+                      <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} fill={layoutFill === 'stretch'} mutationHint={mutationHint} />
+                    )
+                  })}
+                </AnimatePresence>
               </Layout>
             </motion.div>
           ) : (

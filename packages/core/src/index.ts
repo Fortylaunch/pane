@@ -44,6 +44,11 @@ export type { TelemetryEvent, TelemetryEventType } from './telemetry/index.js'
 export { runEval, formatEvalResult } from './evals/runner.js'
 export type { EvalContext, EvalResult, EvalFinding, EvalDimension, EvalScenario } from './evals/types.js'
 
+// Mutations
+export { patchView, classifyMutation, buildPanelIndex, getMutationSpec, getAllMutationSpecs, getMutationClaudePrompt } from './mutations/index.js'
+export type { MutationType, ViewPatch, MutationClassification } from './spec/types.js'
+export type { MutationSpec, PanelIndex } from './mutations/index.js'
+
 // Decompose
 export { decomposeAndAssemble, shouldDecompose } from './decompose/index.js'
 export type { DecomposeConfig, DecompositionPlan, SectionManifest } from './decompose/index.js'

@@ -41,6 +41,7 @@ const pane = createPane({
     maxRounds: 2,
     enabled: false,  // Toggle via UI — default off
   },
+  captureScreen: () => capturePane({ scale: 0.5, quality: 0.5, format: 'jpeg' }),
   decompose: useStarter ? undefined : {
     planCall: createClaudePlanCall(claudeConfig),
     sectionCall: createClaudeSectionCall(claudeConfig),

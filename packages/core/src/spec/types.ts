@@ -89,6 +89,32 @@ export const LAYOUT_FILL_DEFAULTS: Record<LayoutPattern, { fill: LayoutFill; ove
   dashboard: { fill: 'stretch', overflow: 'scroll' },
 }
 
+// ── Mutations ──
+
+export type MutationType =
+  | 'ADD_PANELS'
+  | 'REMOVE_PANELS'
+  | 'UPDATE_PANELS'
+  | 'REORDER_PANELS'
+  | 'REPLACE_VIEW'
+
+export interface ViewPatch {
+  type: MutationType
+  panelIds?: string[]          // REMOVE, UPDATE, REORDER — affected panel IDs
+  panels?: PanePanel[]         // ADD, UPDATE — new or updated panels
+  position?: 'before' | 'after' | 'start' | 'end'  // ADD — insertion point
+  relativeTo?: string          // ADD — anchor panel ID
+  order?: string[]             // REORDER — full panel ID order
+  layout?: LayoutConfig        // any mutation that also changes layout
+}
+
+export interface MutationClassification {
+  type: MutationType
+  confidence: number           // 0-1
+  affectedPanelIds: string[]
+  reason: string
+}
+
 // ── Panels ──
 
 export interface PanePanel {
@@ -254,6 +280,11 @@ export interface PaneSession {
   version: number
   activeContext: string
   contexts: PaneContext[]
+  lastMutation?: {
+    type: MutationType
+    affectedPanelIds: string[]
+    timestamp: number
+  }
   conversation: ConversationEntry[]
   actions: PaneTrackedAction[]
   agents: AgentStatus[]
@@ -270,7 +301,8 @@ export interface PaneContextUpdate {
   operation: ContextOperation
   label?: string
   modality?: ModalityHint
-  view?: PaneView
+  view?: PaneView              // full view (create or REPLACE_VIEW)
+  patch?: ViewPatch            // partial mutation (ADD/REMOVE/UPDATE/REORDER)
   status?: ContextStatus
 }
 

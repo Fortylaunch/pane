@@ -25,12 +25,14 @@ interface PanelRendererProps {
   onFeedback?: (panelId: string, type: 'positive' | 'negative', source: string) => void
   /** Set by parent Layout when this panel is a direct child of a stretch layout */
   fill?: boolean
+  /** Mutation type hint for animation overrides */
+  mutationHint?: string
 }
 
 // Spring configs
 const PANEL_SPRING = { type: 'spring' as const, stiffness: 400, damping: 35 }
 
-export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill }: PanelRendererProps) {
+export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill, mutationHint }: PanelRendererProps) {
   // Expand recipe to atom tree if present
   const panel = rawPanel.recipe ? expandRecipe(rawPanel) : rawPanel
   const [showFeedback, setShowFeedback] = useState(false)
@@ -137,10 +139,10 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill }: P
     <motion.div
       layout
       layoutId={panel.id}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={PANEL_SPRING}
+      initial={mutationHint === 'UPDATE_PANELS' ? { opacity: 0.7 } : { opacity: 0, y: 4 }}
+      animate={mutationHint === 'UPDATE_PANELS' ? { opacity: [0.7, 1] } : { opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97 }}
+      transition={mutationHint === 'REORDER_PANELS' ? { layout: { type: 'spring', stiffness: 300, damping: 30 } } : PANEL_SPRING}
       style={{
         position: 'relative',
         paddingLeft: emphasis ? 'var(--pane-space-sm)' : undefined,
