@@ -6,20 +6,33 @@ Pane is the surface between humans and agents. It's not a dashboard. It's not a 
 
 ## What Pane Does
 
-- **8 atomic primitives** (box, text, image, input, shape, frame, icon, spacer) compose into any interface on the fly
-- **6 workspace modalities** (conversational, informational, compositional, transactional, collaborative, environmental) — the surface shifts between them fluidly
+- **16 atomic primitives** — box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list, chart, skeleton, pill, map
+- **18 recipes** — pre-composed patterns (metric, data-table, alert, stat-grid, map-panel, dashboard, toolbar, filter-bar, and more)
+- **8 layout patterns** — stack, split, grid, tabs, overlay, flow, sidebar, dashboard — with systematic fill contracts
+- **6 workspace modalities** — conversational, informational, compositional, transactional, collaborative, environmental
 - **Agent-driven** — any agent that returns a JSON spec can drive the surface. Claude, custom agents, REST APIs, WebSockets
-- **Design intelligence** — the system prompt carries six design traditions (Tufte, Cooper, Ive, Norman, Yablonski, Van Cleef) so agent-composed views are intentional, not random
-- **Full observability** — telemetry drawer shows every agent request, API call, design reasoning, visual capture, and correction in real time
-- **Visual self-correction** — after rendering, Pane captures a screenshot and sends it back to the agent for evaluation. If the render is broken, the agent corrects it
-- **Streaming** — Claude's response streams in real time. The telemetry drawer shows the agent's thinking as it generates
-- **Feedback loop** — users rate panels (helpful / not useful). Feedback flows back to agents so the system improves
-- **Recipes** — pre-composed patterns (metric cards, data tables, editors, forms, timelines) that agents can use as shorthand or compose from raw atoms
-- **Evals** — 6-dimension evaluation framework (spec quality, modality fit, visual outcome, interaction quality, traceability, design quality) with machine-readable scoring
+- **Design intelligence** — six design traditions (Tufte, Cooper, Ive, Norman, Yablonski, Van Cleef) embedded in the system prompt and eval framework
+- **Design Council** — sidebar chat where you can consult six design personas about the current UI in real time
+- **Design audit** — screenshot comparison tool that analyzes a reference UI against Pane's output and produces actionable token/atom patches
+- **6D eval system** — spec quality, modality fit, visual outcome, interaction quality, traceability, design quality — toggleable via UI
+- **Visual self-correction** — after rendering, Pane captures a screenshot and sends it to Claude for evaluation. If the render is broken, the agent corrects it
+- **Layout fill contracts** — stretch layouts (split, sidebar, dashboard) fill the viewport and manage internal scroll. Start layouts (stack, grid) flow naturally. Enforced at the type system level.
+- **Full observability** — telemetry drawer shows every agent request, API call, design reasoning, and eval finding
+- **Feedback loop** — eval findings feed back to Claude as context on the next call, so the agent self-corrects
 
 ## Quick Start
 
-### Option 1: Create a new app
+### Development
+
+```bash
+pnpm install
+pnpm dev                                # Dev server → http://localhost:5173
+npx tsx examples/dev/server.ts          # Claude API proxy → http://localhost:3001
+```
+
+Visit `http://localhost:5173` for the Claude agent (needs proxy), or `http://localhost:5173/?agent=starter` for the local starter agent.
+
+### Create a new app
 
 ```bash
 npx create-pane my-app
@@ -38,7 +51,7 @@ node server.js         # terminal 1: start the proxy
 npm run dev            # terminal 2: start the app
 ```
 
-### Option 2: Add to an existing project
+### Add to an existing project
 
 ```bash
 npm install @pane/core @pane/renderer @pane/theme
@@ -72,7 +85,7 @@ const pane = createPane({ agent })
 function App() {
   return (
     <PaneProvider runtime={pane} theme={defaultTheme}>
-      <PaneRenderer />
+      <PaneRenderer proxyUrl="http://localhost:3001/api/claude" />
     </PaneProvider>
   )
 }
@@ -82,133 +95,155 @@ function App() {
 
 ```
 ┌─────────────────────────────────────────┐
-│              @pane/renderer             │  React: 8 atoms, recipes, layout,
-│              (the surface)              │  animations, telemetry drawer
+│              @pane/renderer             │  React: 16 atoms, 18 recipes, layout,
+│              (the surface)              │  animations, design council, telemetry
 ├─────────────────────────────────────────┤
 │               @pane/core                │  Types, runtime, agent interface,
-│              (the brain)                │  connectors, actions, evals, telemetry
+│              (the brain)                │  connectors, actions, 6D evals, telemetry
 ├─────────────────────────────────────────┤
-│               @pane/theme               │  Tokens, rules, enforcement
+│               @pane/theme               │  Tokens, rules, fill contracts, enforcement
 └─────────────────────────────────────────┘
 ```
 
-**Three packages.** `@pane/core` is the brain — types, runtime, agent interface, connectors (HTTP, WebSocket, Claude API), action tracking, feedback, telemetry, evals. `@pane/renderer` is the surface — atom components, recipe expansion, layout engine, animation stack, observability layer, telemetry drawer. `@pane/theme` is the skin — tokens, rules, silent enforcement.
-
-## Connecting Agents
-
-Pane works with any agent backend. Swap one line:
-
-```typescript
-// Local function
-import { functionAgent, createPane } from '@pane/core'
-const pane = createPane({ agent: functionAgent(myFn) })
-
-// REST endpoint
-import { httpAgent, createPane } from '@pane/core'
-const pane = createPane({ agent: httpAgent({ url: 'https://my-api.com/pane' }) })
-
-// WebSocket (streaming, real-time)
-import { wsAgent, createPane } from '@pane/core'
-const pane = createPane({ agent: wsAgent({ url: 'wss://my-api.com/pane' }) })
-
-// Claude API
-import { claudeAgent, createPane } from '@pane/core'
-const pane = createPane({ agent: claudeAgent({ proxyUrl: 'http://localhost:3001/api/claude' }) })
-```
-
-Any system that returns a `PaneSessionUpdate` can drive the surface.
-
-## The 8 Atoms
-
-Everything is composed from these primitives:
+## The 16 Atoms
 
 | Atom | Purpose |
 |---|---|
-| `box` | Container. Holds children. Flexbox layout. |
-| `text` | Content with semantic level (heading, body, label, caption, code). |
-| `image` | Visual media with alt text. |
-| `input` | User entry — text, textarea, button, select, toggle, number, date. |
-| `shape` | SVG elements — line, rect, circle, path. For data visualization. |
-| `frame` | Embedded interactive content. Sandboxed. |
-| `icon` | Semantic icon reference. |
-| `spacer` | Explicit spacing / divider. |
+| `box` | Container with flexbox layout, glass effect support, fill protocol |
+| `text` | Content with semantic level (heading, body, label, caption, code) — mono uppercase for labels |
+| `image` | Visual media with alt text |
+| `input` | User entry — text, textarea, button, select, toggle, number, date |
+| `shape` | SVG elements — line, rect, circle, path |
+| `frame` | Embedded interactive content, sandboxed |
+| `icon` | Semantic icon reference |
+| `spacer` | Explicit spacing / divider |
+| `badge` | Status tag/label with color variants |
+| `divider` | Section separator with optional label |
+| `progress` | Animated progress bar with variants |
+| `list` | Semantic ordered/unordered list |
+| `chart` | SVG data visualization — bar, line, area, pie, sparkline |
+| `skeleton` | Shimmer loading placeholder |
+| `pill` | Toggle pill/chip for filter bars and toolbars |
+| `map` | Interactive Leaflet map with dark tiles, markers, and layers |
 
-Agents compose atoms by nesting. A chart is `box > shapes + text`. A table is `box(grid) > boxes > text`. An editor is `box > input(textarea) + buttons`. There's no component library — the interface is generated.
+## The 18 Recipes
 
-## Recipes
-
-Pre-composed patterns agents can reference as shorthand:
-
-| Recipe | What it expands to |
+| Recipe | What it composes |
 |---|---|
 | `metric` | Label + value + trend indicator |
+| `status` | Dot + label + optional detail |
 | `card` | Title + description + actions |
 | `data-table` | Header row + data rows |
 | `editor` | Textarea + action buttons |
 | `form` | Labeled fields + submit |
 | `action-group` | Set of buttons with hierarchy |
 | `timeline` | Ordered events with timestamps |
-| `status` | Dot + label + optional detail |
+| `alert` | Notification banner with icon + colored border |
+| `key-value` | Label:value pair list |
+| `progress-tracker` | Multi-step process with badge indicators |
+| `nav-list` | Clickable item list with icons and arrows |
+| `stat-comparison` | Before/after metric with change indicator |
+| `toolbar` | Horizontal pill bar with optional search |
+| `filter-bar` | Scrollable toggle pills with dot indicators |
+| `stat-grid` | Auto-fill responsive grid of metric cards |
+| `map-panel` | Map with glass overlay title and control pills |
+| `dashboard` | Composed layout with title and children regions |
 
-Agents can also register new recipes at runtime.
+## Layout Fill Contracts
+
+Every layout pattern declares its fill behavior as part of the type system:
+
+| Pattern | Fill | Overflow | Behavior |
+|---|---|---|---|
+| `stack` | start | visible | Children take natural height, container scrolls |
+| `split` | stretch | scroll | Children fill columns, manage own scroll |
+| `grid` | start | visible | Content flows in grid, container scrolls |
+| `sidebar` | stretch | scroll | Both panes fill viewport height |
+| `dashboard` | stretch | scroll | Header/main/footer fill viewport |
+| `tabs` | stretch | scroll | Active tab fills available space |
+| `overlay` | stretch | clip | Positioned content fills container |
+| `flow` | start | visible | Horizontal flow with overflow scroll |
+
+Agents can override via `fill` and `overflow` fields on `LayoutConfig`.
+
+## Design Tools
+
+### Design Audit
+
+Compare a reference UI screenshot against Pane's output:
+
+```bash
+npx tsx scripts/design-audit.ts --reference <screenshot.png> --capture --apply
+```
+
+Outputs specific token patches, atom changes, and design rules based on pixel-level analysis.
+
+### Design Council
+
+Sidebar chat (DESIGN tab in the telemetry panel) where you consult six design personas about the current UI. They analyze through Tufte, Cooper, Ive, Norman, Yablonski, and Van Cleef lenses and suggest concrete improvements.
+
+### Visual Eval
+
+Multi-viewport screenshot evaluation with 6D scoring:
+
+```bash
+npx tsx scripts/visual-eval.ts [--a11y]
+```
 
 ## Evals
 
-6-dimension evaluation framework that scores every agent response:
+6-dimension evaluation framework that scores every agent response (toggleable via UI, default off):
 
 | Dimension | What it checks |
 |---|---|
-| Spec Quality | Valid structure, unique IDs, reasonable nesting depth |
-| Modality Fit | Content matches declared modality, density targets |
-| Visual Outcome | Panel count, atom variety, emphasis balance, action hierarchy |
-| Interaction Quality | Response time, interjection handling, context preservation |
-| Traceability | Every panel sourced, actions timed, artifacts located |
-| Design Quality | Tufte (data-ink), Cooper (goal-directed), Ive (inevitability), Norman (usability), Yablonski (cognitive load), Van Cleef (context) |
+| Spec Quality | Valid structure, unique IDs, reasonable nesting |
+| Modality Fit | Content matches declared modality |
+| Visual Outcome | Density, atom variety, emphasis balance, space utilization |
+| Interaction Quality | Response time, context preservation |
+| Traceability | Every panel sourced, actions timed |
+| Design Quality | Six design tradition checks |
 
-```bash
-# Run evals
-npx tsx scripts/eval-demo.ts
+Eval findings feed back to Claude as context on the next call, creating a self-correction loop.
 
-# Run visual tests (Playwright)
-pnpm run test:visual
+## Theme
+
+Intelligence dashboard aesthetic calibrated against World Monitor:
+
+- Neon green accent (`#00e676`), near-black backgrounds (`#0b0b0e`)
+- Sharp corners (0-2px radius), no shadows, completely flat
+- Monospace uppercase labels with letter-spacing
+- Compact spacing (md: 0.5rem, lg: 0.75rem)
+- Glass effects via `--pane-glass-*` tokens (backdrop-filter blur)
+- Density multipliers (compact 0.625x, spacious 1.5x)
+
+## Connecting Agents
+
+```typescript
+// Local function
+const pane = createPane({ agent: functionAgent(myFn) })
+
+// REST endpoint
+const pane = createPane({ agent: httpAgent({ url: 'https://my-api.com/pane' }) })
+
+// WebSocket
+const pane = createPane({ agent: wsAgent({ url: 'wss://my-api.com/pane' }) })
+
+// Claude API
+const pane = createPane({ agent: claudeAgent({ proxyUrl: 'http://localhost:3001/api/claude' }) })
 ```
 
-## Foundational Principles
+## Testing
 
-1. **Total visibility** — what's happening, how long it takes, where work is, where things are stored, how long they persist. Always visible.
-2. **Traceability** — every panel, action, and artifact traces to its source agent. One gesture from content to provenance.
-3. **No hidden state** — if an agent is working, the surface shows it. If data is stale, the surface says so.
-4. **User sovereignty** — the user can always interrupt, redirect, cancel, or override. Agents work for the user.
-5. **Feedback is first-class** — the system gets better the more you use it. Feedback is captured, transparent, and retractable.
-
-## Roadmap
-
-Pane is functional today — agents compose views, the surface renders with animations, telemetry streams, evals score. Here's what's coming:
-
-### Next Up
-
-- [ ] **Progressive rendering** — show panels as they stream instead of waiting for full JSON. The surface builds itself in real time.
-- [ ] **Action confirmation UI** — confirm/cancel prompts in the renderer for proposed actions.
-- [ ] **AutoAnimate on containers** — children animate automatically on add/remove/reorder.
-- [ ] **View Transitions API** — browser-native GPU-accelerated view swaps as the base animation layer.
-- [ ] **Contrast enforcement on all atoms** — currently only Box detects light backgrounds. Extend to Text, Input, etc.
-- [ ] **JSON truncation recovery** — graceful handling when Claude's response is cut off mid-spec.
-
-### Planned
-
-- [ ] **Playground** — live spec editor + renderer + diagnostics. Compose atoms and recipes interactively.
-- [ ] **Example suite** — static, recipes, conversational, modality-shift, full demo.
-- [ ] **Multi-agent composition** — multiple agents contributing panels to the same view.
-- [ ] **Session persistence** — resume where you left off across sessions.
-- [ ] **Persistent artifacts** — save/retrieve system for things the surface produces.
-- [ ] **Mobile/responsive** — recompose views for smaller screens, not just shrink.
-- [ ] **Voice input** — the interaction types support it, implementation pending.
-- [ ] **CI pipeline** — GitHub Actions for build, test, visual tests, and evals on every PR.
+```bash
+pnpm test           # Unit tests (vitest)
+pnpm test:visual    # Playwright visual tests
+```
 
 ## Tech Stack
 
 - React 19, TypeScript (strict), CSS custom properties
 - Motion (Framer Motion) for layout animations and springs
+- Leaflet for interactive maps (CDN, no API key)
 - html2canvas for visual self-correction screenshots
 - Playwright for visual testing
 - Vite for dev/build, Vitest for unit tests
@@ -220,14 +255,16 @@ Pane is functional today — agents compose views, the surface renders with anim
 pane/
 ├── packages/
 │   ├── core/            # Types, runtime, agents, connectors, actions, evals, telemetry
-│   ├── renderer/        # React atoms, recipes, layout, animations, telemetry drawer
-│   ├── theme/           # Tokens, rules, enforcement
+│   ├── renderer/        # React atoms, recipes, layout, design council, telemetry drawer
+│   ├── theme/           # Tokens, fill contracts, rules, enforcement
 │   └── create-pane/     # npx create-pane scaffold CLI
 ├── examples/
-│   └── dev/             # Dev app with Claude connected
+│   └── dev/             # Dev app with starter + Claude agents
+├── scripts/
+│   ├── design-audit.ts  # Reference screenshot comparison tool
+│   └── visual-eval.ts   # Multi-viewport eval with 6D scoring
 ├── tests/
 │   └── visual/          # Playwright visual tests
-├── scripts/             # Demo and eval scripts
 └── docs/
     └── design/          # Design philosophy and composition ruleset
 ```
