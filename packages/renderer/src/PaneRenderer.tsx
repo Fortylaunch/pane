@@ -464,7 +464,7 @@ const evalBarStyle: CSSProperties = {
 
 const viewAreaStyle: CSSProperties = {
   flex: 1,
-  overflow: 'hidden',
+  overflowY: 'auto',
   padding: '8px 12px',
   display: 'flex',
   flexDirection: 'column',
@@ -474,7 +474,7 @@ const viewAreaStyle: CSSProperties = {
 // Modality-driven content sizing — conversational gets a centered column,
 // informational/environmental fill the viewport, others get a comfortable max-width
 function getViewContentStyle(modality: string): CSSProperties {
-  const base: CSSProperties = { width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'auto' }
+  const base: CSSProperties = { width: '100%', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }
 
   switch (modality) {
     case 'conversational':
@@ -484,7 +484,7 @@ function getViewContentStyle(modality: string): CSSProperties {
     case 'informational':
     case 'environmental':
     case 'collaborative':
-      return { ...base, overflow: 'hidden' } // full width, children manage own scroll
+      return { ...base } // full width
     case 'transactional':
       return { ...base, maxWidth: '560px', margin: '0 auto' }
     default:
