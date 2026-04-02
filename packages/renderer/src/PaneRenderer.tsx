@@ -304,29 +304,27 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
 
       {/* View area — overflow adapts to layout fill contract */}
       <div style={getViewAreaStyle(activeContext?.view?.layout)} data-pane-view>
-        <AnimatePresence mode={isReplaceView ? 'wait' : 'popLayout'}>
+        <AnimatePresence mode="wait">
           {activeContext ? (
             <motion.div
-              key={activeContext.id + (isReplaceView ? '-' + session.version : '-stable')}
-              initial={isReplaceView ? { opacity: 0 } : false}
+              key={activeContext.id + '-' + session.version}
+              initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              exit={isReplaceView ? { opacity: 0 } : undefined}
-              transition={{ duration: 0.15 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: isReplaceView ? 0.15 : 0.05 }}
               style={getViewContentStyle(modality)}
             >
               <Layout config={activeContext.view.layout}>
-                <AnimatePresence>
-                  {activeContext.view.panels.map(panel => {
-                    const layoutDefaults = LAYOUT_FILL_DEFAULTS[activeContext.view.layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
-                    const layoutFill = activeContext.view.layout.fill ?? layoutDefaults?.fill ?? 'start'
-                    const mutationHint = session.lastMutation?.affectedPanelIds?.includes(panel.id)
-                      ? session.lastMutation.type
-                      : undefined
-                    return (
-                      <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} fill={layoutFill === 'stretch'} mutationHint={mutationHint} />
-                    )
-                  })}
-                </AnimatePresence>
+                {activeContext.view.panels.map(panel => {
+                  const layoutDefaults = LAYOUT_FILL_DEFAULTS[activeContext.view.layout.pattern as keyof typeof LAYOUT_FILL_DEFAULTS]
+                  const layoutFill = activeContext.view.layout.fill ?? layoutDefaults?.fill ?? 'start'
+                  const mutationHint = session.lastMutation?.affectedPanelIds?.includes(panel.id)
+                    ? session.lastMutation.type
+                    : undefined
+                  return (
+                    <PanelRenderer key={panel.id} panel={panel} onAction={handleAction} onFeedback={handleFeedback} fill={layoutFill === 'stretch'} mutationHint={mutationHint} />
+                  )
+                })}
               </Layout>
             </motion.div>
           ) : (
