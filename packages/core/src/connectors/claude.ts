@@ -46,7 +46,7 @@ You respond with a PaneSessionUpdate JSON object:
 
 Use "operation": "create" for the first response, "update" for subsequent ones.
 
-## The 12 Atoms
+## The 16 Atoms
 
 BOX — Container. Must have at least one child. Max nesting: 4 levels. Use "atom": "box", "children": [...]. Props: background, borderColor, padding, gap, direction ("row"|"column"), radius, flex. CRITICAL: This is a dark theme. NEVER use white, light, or bright backgrounds on boxes. Use dark colors only: #18181b, #27272a, #1e293b, rgba(255,255,255,0.05). If you need visual distinction between cards, use subtle border colors or very slight background variations within the dark palette.
 
@@ -72,7 +72,15 @@ PROGRESS — Progress bar. Use "atom": "progress", "props": { "value": 75, "max"
 
 LIST — Semantic list. Use "atom": "list", "props": { "items": ["Item 1", "Item 2"], "ordered": false }. Renders proper <ul>/<ol>. Use instead of manually composing box+text for lists.
 
-## The 13 Recipes
+CHART — Data visualization. Use "atom": "chart", "props": { "type": "bar", "data": { "labels": ["Jan", "Feb"], "datasets": [{ "values": [10, 25], "color": "var(--pane-color-accent)", "label": "Revenue" }] }, "height": "200px", "options": { "showGrid": true, "showAxes": true, "showLegend": false } }. Types: bar, line, area, pie, sparkline. Pure SVG — agents pass data, atom handles scaling/axes/gridlines. Sparkline is minimal (no axes, default 32px height). Pie max 6 slices.
+
+MAP — Interactive map. Use "atom": "map", "props": { "center": [38.9, -77.0], "zoom": 5, "markers": [{ "position": [40.7, -74.0], "label": "NYC", "color": "#22c55e" }], "height": "400px" }. Renders Leaflet with dark CartoDB tiles. Markers are colored dots with optional popup labels. Props: center ([lat, lng]), zoom, markers, layers (circles), tileUrl, height. Maps should fill at least 40% of viewport when used as primary content.
+
+SKELETON — Loading placeholder. Use "atom": "skeleton", "props": { "variant": "text", "lines": 3, "height": "16px" }. Variants: text (multi-line), rect (rectangle), circle. Shimmer animation. Use while data is loading.
+
+PILL — Toggle pill/chip. Use "atom": "pill", "props": { "label": "Active", "active": true, "variant": "success", "dot": true }. Variants: default, success, warning, danger, info. Props: label, active, dot (colored dot). Use in toolbars, filter bars, tag lists. Bind toggle via "on": { "toggle": "event-id" }.
+
+## The 18 Recipes
 
 Recipes are pre-composed patterns. Use them by setting "recipe" on a panel. The renderer expands them into atom trees automatically. PREFER recipes over manually composing equivalent atom trees — they produce more consistent, polished output.
 
@@ -102,6 +110,16 @@ NAV-LIST — Clickable item list. "recipe": "nav-list", "props": { "items": [{ "
 
 STAT-COMPARISON — Before/after metric. "recipe": "stat-comparison", "props": { "label": "MRR", "before": "$37k", "after": "$42k", "change": "+12%" }.
 
+TOOLBAR — Horizontal control bar. "recipe": "toolbar", "props": { "items": [{ "label": "Overview", "event": "nav-overview", "active": true }, { "label": "Details", "event": "nav-details" }], "search": true }. Renders pills with optional search input. Uses glass effect.
+
+FILTER-BAR — Toggle filter pills. "recipe": "filter-bar", "props": { "filters": [{ "label": "Active", "value": "active", "active": true }, { "label": "Archived", "value": "archived" }], "event": "filter" }. Scrollable row of pill toggles with dot indicators.
+
+STAT-GRID — Auto-fill metric grid. "recipe": "stat-grid", "props": { "stats": [{ "label": "Revenue", "value": "$42k", "trend": "+12%" }], "minWidth": "240px" }. Responsive grid of metric cards. Uses CSS auto-fill.
+
+MAP-PANEL — Map with overlay controls. "recipe": "map-panel", "props": { "center": [38.9, -77.0], "zoom": 4, "markers": [...], "title": "Global View", "controls": [{ "label": "Satellite", "event": "toggle-sat" }] }. Map with glass overlay title bar and control pills.
+
+DASHBOARD — Composed dashboard layout. "recipe": "dashboard", "props": { "title": "Operations" }. Composed layout with title. Place metrics, charts, maps, and tables as children.
+
 ## Critical Panel Rules
 
 - Every panel MUST have "atom", "id", "props", and "source": "claude"
@@ -111,7 +129,13 @@ STAT-COMPARISON — Before/after metric. "recipe": "stat-comparison", "props": {
 
 ## Layout Patterns
 
-stack (vertical), split (side-by-side, use "ratio": "2:1"), grid (use "columns": 3), tabs, overlay, flow (horizontal)
+stack (vertical), split (side-by-side, use "ratio": "2:1"), grid (use "columns": 3 OR "autoFill": true + "minWidth": "280px" for responsive), tabs, overlay, flow (horizontal), sidebar (use "sidebarWidth": "280px", "sidebarPosition": "left"|"right"), dashboard (header + main + footer rows)
+
+For dashboards, prefer grid with autoFill for responsive metric cards. Use sidebar for navigation + content layouts. Use split for side-by-side map + chart.
+
+## Glass Effects
+
+Add "glass": true to any box for frosted glass backdrop. Uses --pane-glass-bg (translucent dark), --pane-glass-blur (12px blur), --pane-glass-border. Great for overlay panels on maps, floating toolbars, headers over content.
 
 ## Modality Density Targets
 

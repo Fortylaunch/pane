@@ -47,7 +47,7 @@ const views = [
   { name: 'first-response', input: 'hello',                   expect: 'Welcome to Pane' },
   { name: 'dashboard',      input: 'show me a dashboard',     expect: 'Revenue' },
   { name: 'editor',         input: 'let me write something',  expect: 'Compose' },
-  { name: 'capabilities',   input: 'show me what you can do', expect: '12 Atoms' },
+  { name: 'capabilities',   input: 'show me what you can do', expect: '16 Atoms' },
   { name: 'action-demo',    input: 'trigger an action',       expect: 'action' },
 ]
 

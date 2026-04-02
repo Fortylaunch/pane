@@ -18,6 +18,10 @@ export type AtomType =
   | 'divider'
   | 'progress'
   | 'list'
+  | 'chart'
+  | 'skeleton'
+  | 'pill'
+  | 'map'
 
 // ── Layout ──
 
@@ -28,12 +32,18 @@ export type LayoutPattern =
   | 'tabs'
   | 'overlay'
   | 'flow'
+  | 'sidebar'
+  | 'dashboard'
 
 export interface LayoutConfig {
   pattern: LayoutPattern
   ratio?: string            // for split: "1:1", "1:2", "2:1"
   columns?: number          // for grid
   gap?: string              // spacing between panels
+  autoFill?: boolean        // for grid: use repeat(auto-fill, minmax(...))
+  minWidth?: string         // for grid autoFill: min column width, e.g. "280px"
+  sidebarWidth?: string     // for sidebar: e.g. "280px"
+  sidebarPosition?: 'left' | 'right'  // for sidebar: default 'left'
 }
 
 // ── Panels ──

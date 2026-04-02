@@ -479,6 +479,179 @@ registerRecipe('stat-comparison', (panel) => {
   }
 })
 
+// ── Toolbar ──
+// Props: items[] ({ label, event, icon?, active? }), search?
+registerRecipe('toolbar', (panel) => {
+  const items = (panel.props.items ?? []) as { label: string; event: string; icon?: string; active?: boolean }[]
+  const hasSearch = !!panel.props.search
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      direction: 'row',
+      align: 'center',
+      gap: 'var(--pane-space-xs)',
+      padding: 'var(--pane-space-xs) var(--pane-space-sm)',
+      glass: true,
+    },
+    children: [
+      ...items.map((item, i) => ({
+        id: `${panel.id}-pill-${i}`,
+        atom: 'pill' as const,
+        props: { label: item.label, active: item.active ?? false, dot: !!item.icon, variant: 'default' },
+        source: panel.source,
+        on: { toggle: item.event },
+      })),
+      ...(hasSearch ? [
+        { id: `${panel.id}-spacer`, atom: 'spacer' as const, props: { size: '1px', direction: 'horizontal' }, source: panel.source },
+        { id: `${panel.id}-search`, atom: 'input' as const, props: { type: 'text', placeholder: 'Search...', style: { flex: 1, minWidth: '120px' } }, source: panel.source },
+      ] : []),
+    ],
+  }
+})
+
+// ── Filter Bar ──
+// Props: filters[] ({ label, value, active? }), event
+registerRecipe('filter-bar', (panel) => {
+  const filters = (panel.props.filters ?? []) as { label: string; value: string; active?: boolean }[]
+  const event = String(panel.props.event ?? 'filter')
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      direction: 'row',
+      align: 'center',
+      gap: 'var(--pane-space-xs)',
+      padding: 'var(--pane-space-xs) 0',
+      style: { overflowX: 'auto', flexWrap: 'nowrap' },
+    },
+    children: filters.map((f, i) => ({
+      id: `${panel.id}-filter-${i}`,
+      atom: 'pill' as const,
+      props: { label: f.label, active: f.active ?? false, dot: true, variant: f.active ? 'info' : 'default' },
+      source: panel.source,
+      on: { toggle: `${event}-${f.value}` },
+    })),
+  }
+})
+
+// ── Stat Grid ──
+// Props: stats[] ({ label, value, trend?, icon? }), minWidth?
+registerRecipe('stat-grid', (panel) => {
+  const stats = (panel.props.stats ?? []) as { label: string; value: string; trend?: string; icon?: string }[]
+  const minWidth = String(panel.props.minWidth ?? '240px')
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      gap: 'var(--pane-space-md)',
+      style: {
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}, 1fr))`,
+      },
+    },
+    children: stats.map((stat, i) => ({
+      id: `${panel.id}-stat-${i}`,
+      atom: 'box' as const,
+      recipe: 'metric',
+      props: { label: stat.label, value: stat.value, trend: stat.trend, flex: '1' },
+      source: panel.source,
+    })),
+  }
+})
+
+// ── Map Panel ──
+// Props: center, zoom, markers?, title?, controls? ({ label, event }[])
+registerRecipe('map-panel', (panel) => {
+  const title = panel.props.title ? String(panel.props.title) : undefined
+  const controls = (panel.props.controls ?? []) as { label: string; event: string }[]
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      padding: '0',
+      gap: '0',
+      style: { position: 'relative', overflow: 'hidden', borderRadius: 'var(--pane-radius-lg)' },
+    },
+    children: [
+      // Map
+      {
+        id: `${panel.id}-map`,
+        atom: 'map' as const,
+        props: {
+          center: panel.props.center,
+          zoom: panel.props.zoom,
+          markers: panel.props.markers,
+          layers: panel.props.layers,
+          tileUrl: panel.props.tileUrl,
+          height: panel.props.height ?? '400px',
+          style: { borderRadius: '0' },
+        },
+        source: panel.source,
+      },
+      // Overlay header with title + controls
+      ...(title || controls.length > 0 ? [{
+        id: `${panel.id}-overlay`,
+        atom: 'box' as const,
+        props: {
+          direction: 'row',
+          align: 'center',
+          justify: 'space-between',
+          padding: 'var(--pane-space-sm) var(--pane-space-md)',
+          glass: true,
+          style: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, borderRadius: '0' },
+        },
+        source: panel.source,
+        children: [
+          ...(title ? [p(`${panel.id}-title`, 'text', { content: title, level: 'label' }, panel.source)] : []),
+          ...(controls.length > 0 ? [{
+            id: `${panel.id}-controls`,
+            atom: 'box' as const,
+            props: { direction: 'row', gap: 'var(--pane-space-xs)', align: 'center' },
+            source: panel.source,
+            children: controls.map((c, i) => ({
+              id: `${panel.id}-ctrl-${i}`,
+              atom: 'pill' as const,
+              props: { label: c.label, active: false, variant: 'default' },
+              source: panel.source,
+              on: { toggle: c.event },
+            })),
+          }] : []),
+        ],
+      }] : []),
+    ],
+  }
+})
+
+// ── Dashboard ──
+// Props: title?, metrics? (PanePanel[]), chart? (PanePanel), map? (PanePanel), table? (PanePanel)
+registerRecipe('dashboard', (panel) => {
+  const title = panel.props.title ? String(panel.props.title) : undefined
+
+  return {
+    ...panel,
+    atom: 'box',
+    recipe: undefined,
+    props: {
+      gap: 'var(--pane-space-md)',
+    },
+    children: [
+      // Header
+      ...(title ? [p(`${panel.id}-title`, 'text', { content: title, level: 'heading' }, panel.source)] : []),
+      // Metrics row (passed as children of the recipe panel)
+      ...(panel.children ?? []),
+    ],
+  }
+})
+
 // ── Helper ──
 function p(id: string, atom: PanePanel['atom'], props: Record<string, unknown>, source: string): PanePanel {
   return { id, atom, props, source }

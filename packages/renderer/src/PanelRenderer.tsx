@@ -13,6 +13,10 @@ import { Badge } from './atoms/Badge.js'
 import { Divider } from './atoms/Divider.js'
 import { Progress } from './atoms/Progress.js'
 import { List } from './atoms/List.js'
+import { Chart } from './atoms/Chart.js'
+import { Skeleton } from './atoms/Skeleton.js'
+import { Pill } from './atoms/Pill.js'
+import { Map } from './atoms/Map.js'
 import { expandRecipe } from './recipes/index.js'
 
 interface PanelRendererProps {
@@ -100,6 +104,18 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback }: PanelRe
 
       case 'list':
         return <List items={(props.items ?? []) as string[]} {...props as any} />
+
+      case 'chart':
+        return <Chart type={String(props.type ?? 'bar') as any} data={props.data as any} {...props as any} />
+
+      case 'skeleton':
+        return <Skeleton {...props as any} />
+
+      case 'pill':
+        return <Pill label={String(props.label ?? '')} {...props as any} onToggle={handlers['toggle']} />
+
+      case 'map':
+        return <Map center={(props.center ?? [0, 0]) as [number, number]} {...props as any} />
 
       default:
         return <div style={{ color: 'var(--pane-color-danger)', fontSize: 'var(--pane-text-xs-size)' }}>Unknown atom: {atom}</div>

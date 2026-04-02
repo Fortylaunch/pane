@@ -68,6 +68,24 @@ export interface PaneRadiusTokens {
   full: string
 }
 
+export interface PaneEffectTokens {
+  glass: {
+    background: string
+    backgroundStrong: string
+    blur: string
+    blurStrong: string
+    border: string
+  }
+  pulse: {
+    duration: string
+    color: string
+  }
+  shimmer: {
+    duration: string
+    color: string
+  }
+}
+
 export interface PaneThemeRules {
   maxDensity: 'compact' | 'default' | 'spacious'
   minContrast: number
@@ -85,6 +103,7 @@ export interface PaneTheme {
     radius: PaneRadiusTokens
     shadow: PaneShadowTokens
     border: PaneBorderTokens
+    effects: PaneEffectTokens
   }
   rules: PaneThemeRules
 }
@@ -147,6 +166,23 @@ export const defaultTheme: PaneTheme = {
       default: '2px',
       thick: '3px',
     },
+    effects: {
+      glass: {
+        background: 'rgba(24, 24, 27, 0.7)',
+        backgroundStrong: 'rgba(24, 24, 27, 0.85)',
+        blur: '12px',
+        blurStrong: '24px',
+        border: 'rgba(255, 255, 255, 0.08)',
+      },
+      pulse: {
+        duration: '1.5s',
+        color: '#3b82f6',
+      },
+      shimmer: {
+        duration: '1.5s',
+        color: 'rgba(59, 130, 246, 0.08)',
+      },
+    },
   },
   rules: {
     maxDensity: 'default',
@@ -200,6 +236,33 @@ export function themeToCssVars(theme: PaneTheme): Record<string, string> {
   // Border widths
   for (const [key, value] of Object.entries(theme.tokens.border)) {
     vars[`--pane-border-${key}`] = value
+  }
+
+  // Effects — glass
+  vars['--pane-glass-bg'] = theme.tokens.effects.glass.background
+  vars['--pane-glass-bg-strong'] = theme.tokens.effects.glass.backgroundStrong
+  vars['--pane-glass-blur'] = theme.tokens.effects.glass.blur
+  vars['--pane-glass-blur-strong'] = theme.tokens.effects.glass.blurStrong
+  vars['--pane-glass-border'] = theme.tokens.effects.glass.border
+
+  // Effects — pulse & shimmer
+  vars['--pane-pulse-duration'] = theme.tokens.effects.pulse.duration
+  vars['--pane-pulse-color'] = theme.tokens.effects.pulse.color
+  vars['--pane-shimmer-duration'] = theme.tokens.effects.shimmer.duration
+  vars['--pane-shimmer-color'] = theme.tokens.effects.shimmer.color
+
+  // Density multiplier — adjust spacing based on maxDensity rule
+  const densityMultiplier = theme.rules.maxDensity === 'compact' ? 0.625
+    : theme.rules.maxDensity === 'spacious' ? 1.5
+    : 1
+  if (densityMultiplier !== 1) {
+    for (const [key, value] of Object.entries(theme.tokens.spacing)) {
+      if (key === 'unit') continue
+      const num = parseFloat(value)
+      if (!isNaN(num)) {
+        vars[`--pane-space-${key}`] = `${(num * densityMultiplier).toFixed(3)}rem`
+      }
+    }
   }
 
   return vars

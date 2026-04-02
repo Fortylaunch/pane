@@ -31,6 +31,13 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
     }
 
     case 'grid':
+      if (config.autoFill && config.minWidth) {
+        return {
+          ...base,
+          display: 'grid',
+          gridTemplateColumns: `repeat(auto-fill, minmax(${config.minWidth}, 1fr))`,
+        }
+      }
       return {
         ...base,
         display: 'grid',
@@ -46,6 +53,26 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
 
     case 'flow':
       return { ...base, display: 'flex', flexDirection: 'row', overflowX: 'auto' }
+
+    case 'sidebar': {
+      const sw = config.sidebarWidth ?? '280px'
+      const pos = config.sidebarPosition ?? 'left'
+      return {
+        ...base,
+        display: 'grid',
+        gridTemplateColumns: pos === 'left' ? `${sw} 1fr` : `1fr ${sw}`,
+        height: '100%',
+      }
+    }
+
+    case 'dashboard':
+      return {
+        ...base,
+        display: 'grid',
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: 'auto 1fr auto',
+        height: '100%',
+      }
 
     default:
       return { ...base, display: 'flex', flexDirection: 'column' }

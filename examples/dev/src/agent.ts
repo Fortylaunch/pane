@@ -158,68 +158,105 @@ function makeConversationalView(message: string): PaneView {
 }
 
 function makeDashboardView(): PaneView {
+  const s = 'starter-agent'
   return {
-    layout: { pattern: 'stack' },
+    layout: { pattern: 'stack', gap: 'var(--pane-space-md)' },
     panels: [
+      // Header with toolbar
       {
-        id: 'dash-header',
-        atom: 'box',
-        props: { direction: 'row', align: 'center', gap: 'var(--pane-space-sm)' },
-        source: 'starter-agent',
+        id: 'dash-header', atom: 'box', props: { direction: 'row', align: 'center', justify: 'space-between' }, source: s,
         children: [
-          { id: 'dash-title', atom: 'text', props: { content: 'Dashboard', level: 'heading' }, source: 'starter-agent' },
-          { id: 'dash-badge', atom: 'badge', props: { label: 'Live', variant: 'success' }, source: 'starter-agent' },
+          {
+            id: 'dash-title-row', atom: 'box', props: { direction: 'row', align: 'center', gap: 'var(--pane-space-sm)' }, source: s,
+            children: [
+              { id: 'dash-title', atom: 'text', props: { content: 'Dashboard', level: 'heading' }, source: s },
+              { id: 'dash-badge', atom: 'badge', props: { label: 'Live', variant: 'success' }, source: s },
+            ],
+          },
+          {
+            id: 'dash-filters', atom: 'box', props: { direction: 'row', gap: 'var(--pane-space-xs)', align: 'center' }, source: s,
+            children: [
+              { id: 'pill-7d', atom: 'pill', props: { label: '7d', active: true, variant: 'info' }, source: s },
+              { id: 'pill-30d', atom: 'pill', props: { label: '30d', variant: 'default' }, source: s },
+              { id: 'pill-90d', atom: 'pill', props: { label: '90d', variant: 'default' }, source: s },
+            ],
+          },
         ],
       },
-      // Alert banner
+      // Alert
+      { id: 'dash-alert', atom: 'box', recipe: 'alert', props: { title: 'Revenue milestone', message: 'Monthly revenue exceeded $40k target.', type: 'success' }, source: s },
+      // Stat grid (auto-fill)
       {
-        id: 'dash-alert',
-        atom: 'box',
-        recipe: 'alert',
-        props: { title: 'Revenue milestone', message: 'Monthly revenue exceeded $40k target for the first time.', type: 'success' },
-        source: 'starter-agent',
+        id: 'dash-stats', atom: 'box', recipe: 'stat-grid',
+        props: { stats: [
+          { label: 'Revenue', value: '$42,000', trend: '+12%' },
+          { label: 'Active Users', value: '1,247', trend: '+34%' },
+          { label: 'Churn Rate', value: '2.1%', trend: '-0.3%' },
+          { label: 'NPS Score', value: '72', trend: '+5' },
+        ], minWidth: '200px' },
+        source: s,
       },
-      // Metrics using recipe
+      // Chart + Map side by side
       {
-        id: 'metrics-row',
-        atom: 'box',
-        props: { direction: 'row', gap: 'var(--pane-space-md)' },
-        source: 'starter-agent',
+        id: 'dash-main', atom: 'box', props: { direction: 'row', gap: 'var(--pane-space-md)', style: { flexWrap: 'wrap' } }, source: s,
         children: [
-          { id: 'metric-revenue', atom: 'box', recipe: 'metric', props: { label: 'Revenue', value: '$42,000', trend: '+12%', flex: '1' }, source: 'starter-agent' },
-          { id: 'metric-users', atom: 'box', recipe: 'metric', props: { label: 'Active Users', value: '1,247', trend: '+34%', flex: '1' }, source: 'starter-agent' },
-          { id: 'metric-churn', atom: 'box', recipe: 'metric', props: { label: 'Churn Rate', value: '2.1%', trend: '-0.3%', flex: '1' }, source: 'starter-agent' },
+          {
+            id: 'dash-chart-card', atom: 'box', props: { background: 'var(--pane-color-surface)', borderColor: 'var(--pane-color-border)', padding: 'var(--pane-space-lg)', gap: 'var(--pane-space-sm)', flex: '1', style: { minWidth: '300px' } }, source: s,
+            children: [
+              { id: 'chart-label', atom: 'text', props: { content: 'Revenue Trend', level: 'label' }, source: s },
+              { id: 'chart-main', atom: 'chart', props: {
+                type: 'area',
+                data: {
+                  labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                  datasets: [{ values: [28000, 32000, 35000, 33000, 38000, 42000], color: 'var(--pane-color-accent)', label: 'Revenue' }],
+                },
+                height: '180px',
+                options: { showGrid: true, showAxes: true },
+              }, source: s },
+            ],
+          },
+          {
+            id: 'dash-map-card', atom: 'box', props: { padding: '0', flex: '1', style: { minWidth: '300px', overflow: 'hidden', borderRadius: 'var(--pane-radius-lg)' } }, source: s,
+            children: [
+              { id: 'dash-map', atom: 'map', props: {
+                center: [20, 0] as [number, number],
+                zoom: 2,
+                markers: [
+                  { position: [40.7, -74.0], label: 'New York — 312 users', color: '#3b82f6' },
+                  { position: [51.5, -0.1], label: 'London — 247 users', color: '#22c55e' },
+                  { position: [35.7, 139.7], label: 'Tokyo — 189 users', color: '#f59e0b' },
+                  { position: [-33.9, 151.2], label: 'Sydney — 94 users', color: '#ef4444' },
+                ],
+                height: '260px',
+              }, source: s },
+            ],
+          },
         ],
       },
-      // Stat comparison
+      // Progress + Key-value row
       {
-        id: 'dash-comparison',
-        atom: 'box',
-        recipe: 'stat-comparison',
-        props: { label: 'MRR Growth', before: '$37,500', after: '$42,000', change: '+12%' },
-        source: 'starter-agent',
-      },
-      // Progress bar
-      {
-        id: 'dash-progress',
-        atom: 'progress',
-        props: { value: 84, max: 100, label: 'Quarterly Target', variant: 'success' },
-        source: 'starter-agent',
-      },
-      // Key-value details
-      {
-        id: 'dash-details',
-        atom: 'box',
-        recipe: 'key-value',
-        props: {
-          items: [
-            { key: 'Avg. Order Value', value: '$128' },
-            { key: 'Conversion Rate', value: '3.2%' },
-            { key: 'Active Subscriptions', value: '847' },
-            { key: 'Support Tickets', value: '23 open' },
-          ],
-        },
-        source: 'starter-agent',
+        id: 'dash-bottom', atom: 'box', props: { direction: 'row', gap: 'var(--pane-space-md)', style: { flexWrap: 'wrap' } }, source: s,
+        children: [
+          {
+            id: 'dash-progress-card', atom: 'box', props: { background: 'var(--pane-color-surface)', borderColor: 'var(--pane-color-border)', padding: 'var(--pane-space-lg)', gap: 'var(--pane-space-md)', flex: '1', style: { minWidth: '250px' } }, source: s,
+            children: [
+              { id: 'prog-label', atom: 'text', props: { content: 'Targets', level: 'label' }, source: s },
+              { id: 'prog-q', atom: 'progress', props: { value: 84, label: 'Quarterly Revenue', variant: 'success' }, source: s },
+              { id: 'prog-u', atom: 'progress', props: { value: 62, label: 'User Growth', variant: 'default' }, source: s },
+              { id: 'prog-c', atom: 'progress', props: { value: 91, label: 'Uptime SLA', variant: 'warning' }, source: s },
+            ],
+          },
+          {
+            id: 'dash-kv', atom: 'box', recipe: 'key-value',
+            props: { items: [
+              { key: 'Avg. Order Value', value: '$128' },
+              { key: 'Conversion Rate', value: '3.2%' },
+              { key: 'Active Subscriptions', value: '847' },
+              { key: 'Support Tickets', value: '23 open' },
+            ] },
+            source: s,
+          },
+        ],
       },
     ],
   }
@@ -259,8 +296,8 @@ function makeCapabilitiesView(): PaneView {
   return {
     layout: { pattern: 'grid', columns: 2 },
     panels: [
-      makeCapabilityCard('atoms', '12 Atoms', 'box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list'),
-      makeCapabilityCard('recipes', '13 Recipes', 'metric, status, card, data-table, editor, action-group, timeline, form, alert, key-value, progress-tracker, nav-list, stat-comparison'),
+      makeCapabilityCard('atoms', '16 Atoms', 'box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list, chart, skeleton, pill, map'),
+      makeCapabilityCard('recipes', '18 Recipes', 'metric, status, card, data-table, editor, action-group, timeline, form, alert, key-value, progress-tracker, nav-list, stat-comparison, toolbar, filter-bar, stat-grid, map-panel, dashboard'),
       makeCapabilityCard('modality', '6 Modalities', 'conversational, informational, compositional, transactional, collaborative, environmental'),
       makeCapabilityCard('actions', 'Action Layer', 'Propose, confirm, execute, rollback — tracked side effects with full observability'),
       makeCapabilityCard('feedback', 'Feedback Loop', 'Thumbs up/down, dismiss tracking, verbal feedback — the surface learns from use'),

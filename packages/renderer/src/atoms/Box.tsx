@@ -15,6 +15,7 @@ interface BoxProps {
   justify?: string
   flex?: string
   interactive?: boolean
+  glass?: boolean
   className?: string
   [key: string]: unknown
 }
@@ -33,24 +34,34 @@ export function Box({
   justify,
   flex,
   interactive = false,
+  glass = false,
   className,
   ...rest
 }: BoxProps) {
   const [hovered, setHovered] = useState(false)
 
-  const hasBorder = border || borderColor || background
+  const hasBorder = border || borderColor || background || glass
 
   // Contrast enforcement: if a light background is set, force dark text
-  const isLightBg = background && isLightColor(background)
-  const enforcedBg = isLightBg ? 'var(--pane-color-surface)' : background // override light backgrounds
+  // But exempt glass/translucent backgrounds
+  const isLightBg = !glass && background && isLightColor(background)
+  const enforcedBg = isLightBg ? 'var(--pane-color-surface)' : background
   const textColor = isLightBg ? '#18181b' : 'var(--pane-color-text)'
+
+  // Glass effect
+  const glassStyles: CSSProperties = glass ? {
+    background: background ?? 'var(--pane-glass-bg)',
+    backdropFilter: 'blur(var(--pane-glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--pane-glass-blur))',
+    border: border ?? `1px solid var(--pane-glass-border)`,
+  } : {}
 
   const computedStyle: CSSProperties = {
     display: 'flex',
     flexDirection: direction,
     color: textColor,
-    background: enforcedBg ?? (hasBorder ? 'var(--pane-color-surface)' : 'transparent'),
-    border: border ?? (borderColor ? `1px solid ${borderColor}` : (hasBorder && !background) ? '1px solid var(--pane-color-border)' : 'none'),
+    background: enforcedBg ?? (hasBorder && !glass ? 'var(--pane-color-surface)' : 'transparent'),
+    border: border ?? (borderColor ? `1px solid ${borderColor}` : (hasBorder && !background && !glass) ? '1px solid var(--pane-color-border)' : 'none'),
     borderRadius: radius ?? (hasBorder ? 'var(--pane-radius-lg)' : '0'),
     padding: padding ?? (hasBorder ? 'var(--pane-space-lg)' : 'var(--pane-space-sm)'),
     gap: gap ?? 'var(--pane-space-sm)',
@@ -64,6 +75,7 @@ export function Box({
     } : hasBorder ? {
       boxShadow: 'var(--pane-shadow-sm)',
     } : {}),
+    ...glassStyles,
     ...style,
   }
 
@@ -87,6 +99,10 @@ function isLightColor(color: string): boolean {
   if (color.startsWith('var(')) return false
   if (color === 'transparent' || color === 'inherit') return false
 
+  // Skip translucent rgba backgrounds (glass effects, overlays)
+  const alphaMatch = color.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
+  if (alphaMatch && parseFloat(alphaMatch[1]) <= 0.5) return false
+
   // Parse hex
   let hex = color
   if (hex.startsWith('#')) {
@@ -94,7 +110,6 @@ function isLightColor(color: string): boolean {
     const r = parseInt(hex.slice(1, 3), 16)
     const g = parseInt(hex.slice(3, 5), 16)
     const b = parseInt(hex.slice(5, 7), 16)
-    // Relative luminance
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
     return luminance > 0.5
   }
