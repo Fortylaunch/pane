@@ -20,6 +20,9 @@ export { registerRecipe, expandRecipe, hasRecipe, listRecipes } from './recipes/
 // Telemetry
 export { TelemetryDrawer } from './TelemetryDrawer.js'
 
+// Design Chat
+export { DesignChat } from './DesignChat.js'
+
 // Capture
 export { capturePane, dataUrlToBase64 } from './capture.js'
 export type { CaptureOptions } from './capture.js'

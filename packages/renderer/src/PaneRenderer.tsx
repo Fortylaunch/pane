@@ -7,8 +7,13 @@ import { createInput, createFeedback } from '@pane/core'
 import { useCallback, useState, useMemo, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { TelemetryDrawer } from './TelemetryDrawer.js'
+import { DesignChat } from './DesignChat.js'
 
-export function PaneRenderer() {
+interface PaneRendererProps {
+  proxyUrl?: string
+}
+
+export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
   const session = usePaneSession()
   const theme = usePaneTheme()
   const runtime = usePaneRuntime()
@@ -413,6 +418,8 @@ export function PaneRenderer() {
 
     {/* Telemetry drawer — sits beside main content */}
     <TelemetryDrawer />
+    {/* Design council chat */}
+    {proxyUrl && <DesignChat proxyUrl={proxyUrl} />}
     </div>
   )
 }

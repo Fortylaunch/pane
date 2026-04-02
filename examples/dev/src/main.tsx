@@ -47,7 +47,7 @@ console.log(`Pane: ${useStarter ? 'Starter agent' : 'Claude + visual eval'}`)
 function App() {
   return (
     <PaneProvider runtime={pane} theme={defaultTheme}>
-      <PaneRenderer />
+      <PaneRenderer proxyUrl="http://localhost:3001/api/claude" />
     </PaneProvider>
   )
 }
