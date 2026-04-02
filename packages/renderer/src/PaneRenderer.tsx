@@ -7,7 +7,6 @@ import { createInput, createFeedback } from '@pane/core'
 import { useCallback, useState, useMemo, type CSSProperties } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { TelemetryDrawer } from './TelemetryDrawer.js'
-import { DesignChat } from './DesignChat.js'
 
 interface PaneRendererProps {
   proxyUrl?: string
@@ -416,10 +415,8 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
       </div>
     </div>
 
-    {/* Telemetry drawer — sits beside main content */}
-    <TelemetryDrawer />
-    {/* Design council chat */}
-    {proxyUrl && <DesignChat proxyUrl={proxyUrl} />}
+    {/* Sidebar — telemetry + design chat */}
+    <TelemetryDrawer proxyUrl={proxyUrl} />
     </div>
   )
 }

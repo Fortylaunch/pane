@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { useState, useEffect, useRef, useCallback, type CSSProperties, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { onTelemetry, getTelemetryHistory, type TelemetryEvent } from '@pane/core'
+import { usePaneRuntime, usePaneSession } from './context.js'
 
 // Safe string conversion for rendering unknown data values
 function str(val: unknown): string {
@@ -162,39 +163,121 @@ function extractThinking(text: string): { intent?: string; modality?: string; la
   }
 }
 
-export function TelemetryDrawer() {
+// ── Design Chat types ──
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+}
+
+const DESIGN_SYSTEM_PROMPT = `You are the Pane Design Council — a panel of six design experts who advise on the current UI surface. You speak concisely, directly, and with authority.
+
+Your voices:
+**TUFTE** — Data-ink ratio. Is every pixel earning its keep?
+**COOPER** — Goal-directed. Does the UI serve the user's current goal?
+**IVE** — Inevitability. Does this feel like it could not be arranged any other way?
+**NORMAN** — Usability. Can the user tell what to do and what happened?
+**YABLONSKI** — Cognitive law. Hick's, Fitts's, Miller's Law.
+**VAN CLEEF** — Strategic context. Where is the user in their workflow?
+
+Analyze through all six lenses. Reference exact panel IDs, atom types, layout patterns, and token values from the session state. Keep responses short (2-5 lines per voice). Lead with the most critical issue.
+
+You also act as a Product Designer who suggests concrete improvements: token adjustments, new recipes, layout changes, atom refinements. Be specific enough to implement.
+
+Respond in plain text, not JSON. Use voice names as headers.`
+
+interface TelemetryDrawerProps {
+  proxyUrl?: string
+}
+
+export function TelemetryDrawer({ proxyUrl }: TelemetryDrawerProps) {
   const [open, setOpen] = useState(true)
+  const [tab, setTab] = useState<'telemetry' | 'design'>('telemetry')
   const [events, setEvents] = useState<TelemetryEvent[]>(() => getTelemetryHistory())
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Design chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const runtime = usePaneRuntime()
+  const session = usePaneSession()
+
   useEffect(() => {
     const unsub = onTelemetry((event) => {
       setEvents(prev => {
-        // Check if this is an update to an existing event
         const idx = prev.findIndex(e => e.id === event.id)
         if (idx !== -1) {
           const next = [...prev]
-          next[idx] = { ...event } // replace with updated event
+          next[idx] = { ...event }
           return next
         }
-        // New event
         return [...prev.slice(-199), event]
       })
     })
     return unsub
   }, [])
 
-  // Auto-scroll to bottom
   useEffect(() => {
-    if (scrollRef.current && open) {
+    if (scrollRef.current && open && tab === 'telemetry') {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [events, open])
+  }, [events, open, tab])
+
+  useEffect(() => {
+    if (chatScrollRef.current && open && tab === 'design') {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight
+    }
+  }, [chatMessages, open, tab])
+
+  const sendChatMessage = useCallback(async () => {
+    const text = chatInput.trim()
+    if (!text || chatLoading || !proxyUrl) return
+
+    setChatMessages(prev => [...prev, { role: 'user', content: text, timestamp: Date.now() }])
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const activeCtx = session.contexts.find(c => c.id === session.activeContext)
+      const sessionSummary = JSON.stringify({
+        activeContext: session.activeContext,
+        modality: activeCtx?.modality,
+        label: activeCtx?.label,
+        panelCount: activeCtx?.view?.panels?.length ?? 0,
+        panels: activeCtx?.view?.panels?.map(p => ({
+          id: p.id, atom: p.atom, recipe: p.recipe, emphasis: p.emphasis, childCount: p.children?.length ?? 0,
+        })),
+        layout: activeCtx?.view?.layout,
+        evalResult: runtime.getLastEvalResult?.(),
+      }, null, 2)
+
+      const apiMessages = [
+        ...chatMessages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user' as const, content: `Session state:\n${sessionSummary}\n\nUser: ${text}` },
+      ]
+
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2048, system: DESIGN_SYSTEM_PROMPT, messages: apiMessages }),
+      })
+
+      const data = await res.json()
+      const reply = data.content?.[0]?.text ?? 'No response'
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply, timestamp: Date.now() }])
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now() }])
+    } finally {
+      setChatLoading(false)
+    }
+  }, [chatInput, chatLoading, chatMessages, session, runtime, proxyUrl])
 
   return (
     <motion.div
-      animate={{ width: open ? 380 : 0 }}
+      animate={{ width: open ? 360 : 0 }}
       transition={{ type: 'spring', stiffness: 400, damping: 35 }}
       style={drawerStyle}
     >
@@ -202,7 +285,7 @@ export function TelemetryDrawer() {
       <button
         onClick={() => setOpen(v => !v)}
         style={toggleBtnStyle}
-        title="Telemetry"
+        title="Sidebar"
       >
         <span style={{ fontSize: '14px' }}>{ open ? '›' : '‹' }</span>
         {!open && events.length > 0 && (
@@ -212,13 +295,21 @@ export function TelemetryDrawer() {
 
       {open && (
         <>
-            {/* Header */}
-            <div style={headerStyle}>
-              <span style={{ fontWeight: 600, fontSize: '13px' }}>Telemetry</span>
-              <span style={countStyle}>{events.length} events</span>
-            </div>
+          {/* Tab bar */}
+          <div style={tabBarStyle}>
+            <button onClick={() => setTab('telemetry')} style={{ ...tabStyle, ...(tab === 'telemetry' ? tabActiveStyle : {}) }}>
+              TELEMETRY
+              {events.length > 0 && <span style={{ opacity: 0.5, marginLeft: '4px' }}>{events.length}</span>}
+            </button>
+            {proxyUrl && (
+              <button onClick={() => setTab('design')} style={{ ...tabStyle, ...(tab === 'design' ? tabActiveStyle : {}) }}>
+                DESIGN
+              </button>
+            )}
+          </div>
 
-            {/* Event list */}
+          {/* Telemetry tab */}
+          {tab === 'telemetry' && (
             <div ref={scrollRef} style={listStyle}>
               {events.map(event => (
                 <div key={event.id} style={eventStyle}>
@@ -226,33 +317,61 @@ export function TelemetryDrawer() {
                     <span style={{ ...typeBadgeStyle, background: getTypeColor(event.type) }}>
                       {getTypeIcon(event.type)} {event.type.split(':')[1]}
                     </span>
-                    {event.duration && (
-                      <span style={durationStyle}>{event.duration}ms</span>
-                    )}
+                    {event.duration && <span style={durationStyle}>{event.duration}ms</span>}
                     <span style={timeStyle}>
                       {new Date(event.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                     </span>
                   </div>
-
-                  {event.preview && (
-                    <div style={previewStyle}>{event.preview}</div>
-                  )}
-
+                  {event.preview && <div style={previewStyle}>{event.preview}</div>}
                   {renderEventDetails(event)}
-
-                  {/* Clickable screenshot */}
-                  {event.image && (
-                    <div onClick={() => setSelectedImage(event.image!)} style={{ cursor: 'pointer' }} />
-                  )}
+                  {event.image && <div onClick={() => setSelectedImage(event.image!)} style={{ cursor: 'pointer' }} />}
                 </div>
               ))}
-
               {events.length === 0 && (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--pane-color-text-muted)', fontSize: '12px' }}>
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--pane-color-text-muted)', fontSize: '11px', fontFamily: 'var(--pane-font-mono)' }}>
                   No events yet. Type something to start.
                 </div>
               )}
             </div>
+          )}
+
+          {/* Design chat tab */}
+          {tab === 'design' && proxyUrl && (
+            <>
+              <div ref={chatScrollRef} style={listStyle}>
+                {chatMessages.length === 0 && (
+                  <div style={{ padding: '12px 8px', fontSize: '10px', fontFamily: 'var(--pane-font-mono)', color: 'var(--pane-color-text-muted)', lineHeight: '1.5' }}>
+                    Ask the design council about the current UI. They analyze through six design lenses.
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} style={msg.role === 'user' ? chatUserStyle : chatAssistantStyle}>
+                    {msg.role === 'assistant' ? (
+                      <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                    ) : (
+                      <span>{msg.content}</span>
+                    )}
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div style={{ ...chatAssistantStyle, opacity: 0.5 }}>
+                    <span style={{ animation: 'pane-pulse 1.5s ease infinite' }}>Consulting...</span>
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: '4px 8px', borderTop: '1px solid var(--pane-color-border)' }}>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendChatMessage()}
+                  placeholder="Ask about this UI..."
+                  disabled={chatLoading}
+                  style={chatInputStyle}
+                />
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -299,23 +418,84 @@ function getTypeColor(type: string): string {
 
 // ── Styles ──
 
+const tabBarStyle: CSSProperties = {
+  display: 'flex',
+  gap: '0',
+  borderBottom: '1px solid var(--pane-color-border)',
+  flexShrink: 0,
+}
+
+const tabStyle: CSSProperties = {
+  flex: 1,
+  padding: '6px 0',
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: 'var(--pane-color-text-muted)',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  transition: 'color 0.15s ease, background 0.15s ease',
+}
+
+const tabActiveStyle: CSSProperties = {
+  color: 'var(--pane-color-accent-text)',
+  background: 'var(--pane-color-accent)',
+}
+
+const chatUserStyle: CSSProperties = {
+  fontSize: '11px',
+  fontFamily: 'var(--pane-font-mono)',
+  color: 'var(--pane-color-text)',
+  padding: '4px 8px',
+  background: 'var(--pane-color-surface-raised)',
+  borderRadius: '2px',
+  alignSelf: 'flex-end',
+  maxWidth: '85%',
+  marginBottom: '4px',
+}
+
+const chatAssistantStyle: CSSProperties = {
+  fontSize: '11px',
+  fontFamily: 'var(--pane-font-family)',
+  color: 'var(--pane-color-text)',
+  padding: '6px 8px',
+  lineHeight: '1.5',
+  maxWidth: '95%',
+  marginBottom: '4px',
+}
+
+const chatInputStyle: CSSProperties = {
+  width: '100%',
+  padding: '6px 8px',
+  fontSize: '11px',
+  fontFamily: 'var(--pane-font-mono)',
+  color: 'var(--pane-color-text)',
+  background: 'var(--pane-color-background)',
+  border: '1px solid var(--pane-color-border)',
+  borderRadius: '0px',
+  outline: 'none',
+  boxSizing: 'border-box',
+}
+
 const toggleBtnStyle: CSSProperties = {
   position: 'absolute',
-  left: -28,
+  left: -20,
   top: '50%',
   transform: 'translateY(-50%)',
   zIndex: 10,
-  width: 28,
+  width: 20,
   height: 48,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
   gap: '4px',
-  background: 'var(--pane-color-surface-raised)',
+  background: 'var(--pane-color-surface)',
   border: '1px solid var(--pane-color-border)',
   borderRight: 'none',
-  borderRadius: '6px 0 0 6px',
+  borderRadius: '2px 0 0 2px',
   color: 'var(--pane-color-text-muted)',
   cursor: 'pointer',
   fontFamily: 'inherit',
