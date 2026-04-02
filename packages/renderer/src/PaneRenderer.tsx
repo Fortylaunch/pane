@@ -222,38 +222,44 @@ export function PaneRenderer() {
         )}
       </AnimatePresence>
 
-      {/* Top bar — modality + eval status */}
-      {activeContext && (
-        <div style={topBarStyle}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={modalityDotStyle(modality)} />
+      {/* Top bar — always visible */}
+      <div style={topBarStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {activeContext ? (
+            <>
+              <span style={modalityDotStyle(modality)} />
+              <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
+                {activeContext.label || modality}
+              </span>
+            </>
+          ) : (
             <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
-              {activeContext.label || modality}
+              PANE
             </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-            <button onClick={toggleSpecEval} style={{ ...toggleBtnStyle, color: specEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
-              6D {specEvalOn ? 'ON' : 'OFF'}
-            </button>
-            <button onClick={toggleVisualEval} style={{ ...toggleBtnStyle, color: visualEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
-              VIS {visualEvalOn ? 'ON' : 'OFF'}
-            </button>
-            {evalResult && specEvalOn && (
-              <button
-                onClick={() => setShowEval(v => !v)}
-                style={{
-                  ...toggleBtnStyle,
-                  color: evalResult.overallGrade === 'pass' ? 'var(--pane-color-success)'
-                    : evalResult.overallGrade === 'warn' ? 'var(--pane-color-warning)'
-                    : 'var(--pane-color-danger)',
-                }}
-              >
-                {evalResult.overallGrade.toUpperCase()} · {evalIssues.length}
-              </button>
-            )}
-          </div>
+          )}
         </div>
-      )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+          <button onClick={toggleSpecEval} style={{ ...toggleBtnStyle, color: specEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
+            6D {specEvalOn ? 'ON' : 'OFF'}
+          </button>
+          <button onClick={toggleVisualEval} style={{ ...toggleBtnStyle, color: visualEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
+            VIS {visualEvalOn ? 'ON' : 'OFF'}
+          </button>
+          {evalResult && specEvalOn && (
+            <button
+              onClick={() => setShowEval(v => !v)}
+              style={{
+                ...toggleBtnStyle,
+                color: evalResult.overallGrade === 'pass' ? 'var(--pane-color-success)'
+                  : evalResult.overallGrade === 'warn' ? 'var(--pane-color-warning)'
+                  : 'var(--pane-color-danger)',
+              }}
+            >
+              {evalResult.overallGrade.toUpperCase()} · {evalIssues.length}
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Eval findings panel */}
       <AnimatePresence>
