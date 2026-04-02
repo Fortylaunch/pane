@@ -17,23 +17,23 @@ interface InputProps {
 }
 
 const baseStyle: CSSProperties = {
-  fontFamily: 'inherit',
-  fontSize: 'var(--pane-text-md-size)',
-  lineHeight: 'var(--pane-text-md-line)',
+  fontFamily: 'var(--pane-font-mono)',
+  fontSize: 'var(--pane-text-sm-size)',
+  lineHeight: 'var(--pane-text-sm-line)',
   color: 'var(--pane-color-text)',
   background: 'var(--pane-color-surface)',
   border: '1px solid var(--pane-color-border)',
-  borderRadius: 'var(--pane-radius-md)',
-  padding: '6px 10px',
+  borderRadius: '0px',
+  padding: '6px 8px',
   outline: 'none',
   width: '100%',
   boxSizing: 'border-box' as const,
-  transition: 'all 0.15s ease',
+  transition: 'border-color 0.15s ease',
 }
 
 const focusStyle: CSSProperties = {
   borderColor: 'var(--pane-color-accent)',
-  boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.15)',
+  boxShadow: 'none',
 }
 
 export function Input({
