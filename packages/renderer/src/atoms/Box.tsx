@@ -59,6 +59,7 @@ export function Box({
   const computedStyle: CSSProperties = {
     display: 'flex',
     flexDirection: direction,
+    minHeight: 0,
     color: textColor,
     background: enforcedBg ?? (hasBorder && !glass ? 'var(--pane-color-surface)' : 'transparent'),
     border: border ?? (borderColor ? `1px solid ${borderColor}` : (hasBorder && !background && !glass) ? '1px solid var(--pane-color-border)' : 'none'),

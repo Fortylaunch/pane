@@ -22,7 +22,7 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
 
   switch (config.pattern) {
     case 'stack':
-      return { ...base, display: 'flex', flexDirection: 'column' }
+      return { ...base, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }
 
     case 'split': {
       const [left, right] = (config.ratio ?? '1:1').split(':').map(Number)
@@ -30,7 +30,9 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
         ...base,
         display: 'grid',
         gridTemplateColumns: `${left}fr ${right}fr`,
-        alignItems: 'start',
+        alignItems: 'stretch',
+        flex: 1,
+        minHeight: 0,
       }
     }
 
@@ -40,14 +42,14 @@ function getLayoutStyle(config: LayoutConfig): CSSProperties {
           ...base,
           display: 'grid',
           gridTemplateColumns: `repeat(auto-fill, minmax(${config.minWidth}, 1fr))`,
-          alignItems: 'start',
+          alignItems: 'stretch',
         }
       }
       return {
         ...base,
         display: 'grid',
         gridTemplateColumns: `repeat(${config.columns ?? 2}, 1fr)`,
-        alignItems: 'start',
+        alignItems: 'stretch',
       }
 
     case 'tabs':
