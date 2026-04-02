@@ -122,6 +122,7 @@ DASHBOARD — Composed dashboard layout. "recipe": "dashboard", "props": { "titl
 
 ## Critical Panel Rules
 
+- The ONLY valid atom values are: box, text, image, input, shape, frame, icon, spacer, badge, divider, progress, list, chart, skeleton, pill, map. There is NO "button" atom — use input with type:"button". There is NO "textarea" atom — use input with type:"textarea". There is NO "label" atom — use text with level:"label".
 - Every panel MUST have "atom", "id", "props", and "source": "claude"
 - Use "children" array to nest panels inside box atoms
 - Use "emphasis": "primary"|"muted"|"urgent" for visual weight
@@ -533,9 +534,52 @@ function normalizeView(view: any): any {
   }
 }
 
+// Maps invalid atom names Claude generates to their correct equivalents
+const ATOM_RECOVERY: Record<string, { atom: string; props?: Record<string, unknown> }> = {
+  button:    { atom: 'input', props: { type: 'button' } },
+  textarea:  { atom: 'input', props: { type: 'textarea' } },
+  select:    { atom: 'input', props: { type: 'select' } },
+  toggle:    { atom: 'input', props: { type: 'toggle' } },
+  checkbox:  { atom: 'input', props: { type: 'toggle' } },
+  label:     { atom: 'text',  props: { level: 'label' } },
+  heading:   { atom: 'text',  props: { level: 'heading' } },
+  paragraph: { atom: 'text',  props: { level: 'body' } },
+  img:       { atom: 'image' },
+  svg:       { atom: 'shape' },
+  iframe:    { atom: 'frame' },
+  hr:        { atom: 'divider' },
+  ul:        { atom: 'list' },
+  ol:        { atom: 'list', props: { ordered: true } },
+  container: { atom: 'box' },
+  div:       { atom: 'box' },
+  section:   { atom: 'box' },
+  span:      { atom: 'text', props: { level: 'body' } },
+  tag:       { atom: 'badge' },
+  chip:      { atom: 'pill' },
+  loader:    { atom: 'skeleton' },
+  loading:   { atom: 'skeleton' },
+  graph:     { atom: 'chart' },
+  bar:       { atom: 'chart', props: { type: 'bar' } },
+}
+
 function normalizePanel(panel: any): any {
   // Claude sometimes uses "type" instead of "atom"
-  const atom = panel.atom ?? panel.type ?? 'box'
+  let atom = panel.atom ?? panel.type ?? 'box'
+
+  // Recover invalid atoms
+  const recovery = ATOM_RECOVERY[atom]
+  if (recovery) {
+    emitTelemetry('agent:response', {
+      type: 'atom-recovery',
+      original: atom,
+      recovered: recovery.atom,
+      panelId: panel.id,
+    }, { preview: `Recovered invalid atom "${atom}" → "${recovery.atom}" in panel "${panel.id ?? 'unknown'}"` })
+    atom = recovery.atom
+    if (recovery.props) {
+      panel.props = { ...recovery.props, ...(panel.props ?? {}) }
+    }
+  }
 
   // Build props — merge explicit props with any flat fields Claude might use
   const props = { ...(panel.props ?? {}) }

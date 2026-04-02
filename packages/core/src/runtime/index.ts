@@ -55,6 +55,7 @@ export class PaneRuntime {
   private specEvalEnabled = false
   private _visualEvalEnabled = false
   private decomposeConfig: DecomposeConfig | null = null
+  private designFeedback: string[] = []
 
   constructor(config: PaneRuntimeConfig) {
     this.agent = config.agent
@@ -123,14 +124,23 @@ export class PaneRuntime {
 
     this.addConversationEntry('user', input.content, input.timestamp)
 
-    // Attach eval findings from last response so the agent can self-correct
-    const sessionForAgent = this.lastEvalResult
-      ? Object.assign({}, this.session, {
-          __lastEvalFindings: this.lastEvalResult.findings
-            .filter(f => f.grade !== 'pass')
-            .map(f => `[${f.dimension}] ${f.message}${f.suggestion ? ` → ${f.suggestion}` : ''}`),
-        })
+    // Attach eval + design council findings so the agent can self-correct
+    const evalFindings = this.lastEvalResult
+      ? this.lastEvalResult.findings
+          .filter(f => f.grade !== 'pass')
+          .map(f => `[${f.dimension}] ${f.message}${f.suggestion ? ` → ${f.suggestion}` : ''}`)
+      : []
+
+    const allFeedback = [...evalFindings, ...this.designFeedback]
+
+    const sessionForAgent = allFeedback.length > 0
+      ? Object.assign({}, this.session, { __lastEvalFindings: allFeedback })
       : this.session
+
+    // Clear design feedback after it's been sent (one-shot)
+    if (this.designFeedback.length > 0) {
+      this.designFeedback = []
+    }
 
     // Route: decompose complex requests or go direct
     if (this.decomposeConfig && shouldDecompose(input.content)) {
@@ -245,6 +255,19 @@ export class PaneRuntime {
 
   isVisualEvalEnabled(): boolean {
     return this._visualEvalEnabled
+  }
+
+  /**
+   * Store design council feedback so it's included in the next agent call.
+   * This closes the loop: user consults design council → findings inform
+   * the next Claude response.
+   */
+  setDesignFeedback(findings: string[]) {
+    this.designFeedback = findings
+  }
+
+  getDesignFeedback(): string[] {
+    return this.designFeedback
   }
 
   subscribe(listener: SessionListener): () => void {

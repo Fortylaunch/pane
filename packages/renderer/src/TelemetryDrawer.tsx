@@ -268,6 +268,14 @@ export function TelemetryDrawer({ proxyUrl }: TelemetryDrawerProps) {
       const data = await res.json()
       const reply = data.content?.[0]?.text ?? 'No response'
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply, timestamp: Date.now() }])
+
+      // Feed design council findings back into runtime so Claude's next response incorporates them
+      const findings = reply
+        .split('\n')
+        .filter((line: string) => line.trim().length > 10)
+        .slice(0, 8)
+        .map((line: string) => `[design-council] ${line.trim()}`)
+      runtime.setDesignFeedback?.(findings)
     } catch (err) {
       setChatMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now() }])
     } finally {

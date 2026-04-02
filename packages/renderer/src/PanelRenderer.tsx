@@ -120,7 +120,13 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill }: P
         return <Map center={(props.center ?? [0, 0]) as [number, number]} {...props as any} />
 
       default:
-        return <div style={{ color: 'var(--pane-color-danger)', fontSize: 'var(--pane-text-xs-size)' }}>Unknown atom: {atom}</div>
+        // Fallback recovery: render as box with a caption identifying the unknown atom
+        console.warn(`[pane] Unknown atom "${atom}" in panel "${panel.id}" — rendering as box`)
+        return (
+          <Box {...props as any}>
+            {renderedChildren}
+          </Box>
+        )
     }
   })()
 
