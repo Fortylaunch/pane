@@ -7,6 +7,7 @@
 // ────────────────────────────────────────────
 
 import type { PaneView, PanePanel, MutationType, MutationClassification } from '../spec/types.js'
+import { MUTATION_LOW_CONFIDENCE_THRESHOLD } from '../limits.js'
 
 // ── Verb lists ──
 
@@ -97,6 +98,23 @@ export function classifyMutation(
 ): MutationClassification {
   const text = input.toLowerCase().trim()
 
+  // ── Action trigger fast path ──
+  // Synthetic action messages from button clicks (`__action:event:panelId`) are
+  // not natural language. Don't run keyword matching against them — that's how
+  // we ended up with REPLACE_VIEW (100%) on a button click. Instead, treat them
+  // as targeted UPDATE_PANELS with the source panel as affected.
+  if (text.startsWith('__action:')) {
+    const parts = input.substring('__action:'.length).split(':')
+    const event = parts[0] ?? 'submit'
+    const panelId = parts.slice(1).join(':') || 'unknown'
+    return {
+      type: 'UPDATE_PANELS',
+      confidence: 1,
+      affectedPanelIds: [panelId],
+      reason: `Action trigger: "${event}" on panel "${panelId}" — targeted update, not full replacement`,
+    }
+  }
+
   // No current view → always REPLACE_VIEW
   if (!currentView || currentView.panels.length === 0) {
     return { type: 'REPLACE_VIEW', confidence: 1, affectedPanelIds: [], reason: 'No existing view to mutate' }
@@ -167,7 +185,7 @@ export function classifyMutation(
   const confidence = totalScore > 0 ? bestScore / totalScore : 0.5
 
   // If confidence is too low, default to REPLACE_VIEW
-  if (confidence < 0.3 && best !== 'REPLACE_VIEW') {
+  if (confidence < MUTATION_LOW_CONFIDENCE_THRESHOLD && best !== 'REPLACE_VIEW') {
     return {
       type: 'REPLACE_VIEW',
       confidence: 0.5,

@@ -1,5 +1,6 @@
 import { type CSSProperties, useState, useCallback, useRef, type KeyboardEvent } from 'react'
 import { motion } from 'motion/react'
+import { getContrastTextColor } from './contrast.js'
 
 type InputType = 'text' | 'number' | 'textarea' | 'select' | 'toggle' | 'button' | 'date'
 
@@ -49,11 +50,24 @@ export function Input({
 }: InputProps) {
   const [internalValue, setInternalValue] = useState(controlledValue ?? '')
   const [focused, setFocused] = useState(false)
+  const [userHasTyped, setUserHasTyped] = useState(false)
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
-  const value = controlledValue ?? internalValue
+
+  // Local-state-first model:
+  // - Once the user starts typing, the local state is authoritative
+  // - The controlled value is only used as the initial value
+  // - Server roundtrips that re-send a value prop don't clobber what
+  //   the user is currently typing
+  // - For discrete-choice inputs (toggle, select), the controlled value
+  //   is honored because the agent IS the source of truth there
+  const isDiscrete = type === 'toggle' || type === 'select'
+  const value = isDiscrete
+    ? (controlledValue ?? internalValue)
+    : (userHasTyped ? internalValue : (controlledValue ?? internalValue))
 
   const handleChange = useCallback((v: string) => {
     setInternalValue(v)
+    setUserHasTyped(true)
     onChange?.(v)
   }, [onChange])
 
@@ -61,14 +75,24 @@ export function Input({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onSubmit?.(value)
-      setInternalValue('')
+      // Only auto-clear when uncontrolled (no value prop). The global chat
+      // input wants this behavior (clear after sending). In-view form fields
+      // pass a value prop and want the value to persist.
+      if (controlledValue === undefined) {
+        setInternalValue('')
+        setUserHasTyped(false)
+      }
     }
-  }, [onSubmit, value])
+  }, [onSubmit, value, controlledValue])
+
+  // Contrast enforcement: if a light background is set on this Input, force dark text
+  const contrastColor = getContrastTextColor(style)
 
   const mergedStyle = {
     ...baseStyle,
     ...(focused ? focusStyle : {}),
     ...style,
+    ...(contrastColor ? { color: contrastColor } : {}),
   }
 
   if (type === 'button') {
@@ -112,6 +136,11 @@ export function Input({
   }
 
   if (type === 'select' && options) {
+    // Normalize options — Claude sometimes sends strings instead of {value, label} objects
+    const normalizedOptions = options.map((opt: any, i: number) => {
+      if (typeof opt === 'string') return { value: opt, label: opt, key: `${opt}-${i}` }
+      return { value: opt.value ?? opt.label ?? `opt-${i}`, label: opt.label ?? opt.value ?? `Option ${i + 1}`, key: `${opt.value ?? i}-${i}` }
+    })
     return (
       <select
         style={mergedStyle}
@@ -122,8 +151,8 @@ export function Input({
         onBlur={() => setFocused(false)}
       >
         {placeholder && <option value="">{placeholder}</option>}
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        {normalizedOptions.map(opt => (
+          <option key={opt.key} value={opt.value}>{opt.label}</option>
         ))}
       </select>
     )

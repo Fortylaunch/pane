@@ -1,5 +1,8 @@
 // @pane/core — the system
 
+// Limits — single source of truth for all context window, token, and timeout constants
+export * from './limits.js'
+
 // Spec
 export * from './spec/types.js'
 export { validateSpec, validateView_, validatePanel_ } from './spec/validate.js'
@@ -52,3 +55,11 @@ export type { MutationSpec, PanelIndex, LayoutPlan, LayoutSlot } from './mutatio
 // Decompose
 export { decomposeAndAssemble, shouldDecompose } from './decompose/index.js'
 export type { DecomposeConfig, DecompositionPlan, SectionManifest } from './decompose/index.js'
+
+// Context Budget
+export { applyBudget, estimateTokens, compressSession, getSystemPrompt, shouldIncludeImage } from './context/index.js'
+export type { BudgetConfig, BudgetResult, ContextComponents, ImageGateConfig } from './context/index.js'
+
+// Operations
+export { OperationTracker } from './operations/index.js'
+export type { OperationChangeListener } from './operations/index.js'

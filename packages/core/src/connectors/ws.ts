@@ -106,7 +106,7 @@ export function wsAgent(config: WsConnectorConfig): PaneAgent {
 
   const emptySession: PaneSession = {
     id: '', version: 0, activeContext: '',
-    contexts: [], conversation: [], actions: [],
+    contexts: [], operations: [], conversation: [], actions: [],
     agents: [], artifacts: [], feedback: [],
   }
 

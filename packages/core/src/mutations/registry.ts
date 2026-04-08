@@ -6,6 +6,7 @@
 // ────────────────────────────────────────────
 
 import type { MutationType, MutationClassification, PaneView, PanePanel } from '../spec/types.js'
+import { PANEL_LABEL_MAX_CHARS } from '../limits.js'
 
 export interface MutationSpec {
   type: MutationType
@@ -84,6 +85,7 @@ export function getAllMutationSpecs(): MutationSpec[] {
 export function getMutationClaudePrompt(
   classification: MutationClassification,
   currentView: PaneView | null,
+  userInput?: string,
 ): string {
   const spec = getMutationSpec(classification.type)
 
@@ -94,6 +96,42 @@ export function getMutationClaudePrompt(
   const panelSummary = currentView
     ? currentView.panels.map(p => summarizePanel(p)).join('\n')
     : 'No panels'
+
+  // Detect synthetic action triggers and surface them as user interactions
+  // rather than mutation requests. This shifts Claude's framing from
+  // "the user typed something" to "the user clicked a button — interpret
+  // their intent and respond with a small targeted update".
+  const isAction = userInput?.startsWith('__action:') ?? false
+  if (isAction) {
+    const parts = userInput!.substring('__action:'.length).split(':')
+    const event = parts[0] ?? 'submit'
+    const panelId = parts.slice(1).join(':') || 'unknown'
+
+    return `
+USER INTERACTION DETECTED — NOT A NEW REQUEST
+
+The user clicked a UI element. Their intent is encoded in the click, not a typed message.
+
+Event: "${event}"
+Source panel ID: "${panelId}"
+
+## Your job
+Interpret what the user wanted by clicking that element, then respond with a SMALL, TARGETED update. Do NOT regenerate the entire view.
+
+## Required response shape (UPDATE_PANELS patch)
+${spec.claudeInstruction}
+
+## Current view panels
+${panelSummary}
+
+## Constraints
+- Update at most 3-5 panels. Most actions affect 1-2.
+- Keep the existing layout. Don't replace the view.
+- The panel ID "${panelId}" gives you the click target. Look at the panel summary above to understand what was clicked.
+- If the action implies a state transition (e.g., "run-assessment" should show progress), update the relevant panel to reflect that state. Don't build a new dashboard.
+- Response should be SHORT — under 1500 tokens. A button click does not warrant a 30KB response.
+`.trim()
+  }
 
   return `
 MUTATION MODE: ${classification.type}
@@ -113,7 +151,7 @@ function summarizePanel(panel: PanePanel, depth = 0): string {
   const childCount = panel.children?.length ?? 0
   const recipe = panel.recipe ? ` recipe:${panel.recipe}` : ''
   const label = panel.props?.label ?? panel.props?.content
-  const labelStr = label ? ` "${String(label).substring(0, 40)}"` : ''
+  const labelStr = label ? ` "${String(label).substring(0, PANEL_LABEL_MAX_CHARS)}"` : ''
   const line = `${indent}- ${panel.id} (${panel.atom}${recipe}${labelStr}${childCount > 0 ? `, ${childCount} children` : ''})`
 
   if (panel.children && depth < 2) {

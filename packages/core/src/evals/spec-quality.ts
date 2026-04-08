@@ -81,22 +81,26 @@ export function evalSpecQuality(ctx: EvalContext): EvalFinding[] {
     })
   }
 
-  // Rule: Reasonable panel depth (warn at 5, fail at 8)
+  // Rule: Reasonable panel depth (warn at 8, fail at 12)
+  // Depth is observational, not enforced — the runtime safety net hoists at 12+.
+  // These thresholds tell the user "this might be a manual table or a wrong
+  // primitive choice" without making the runtime restructure their content.
   const maxDepth = getMaxDepth(activeCtx?.view.panels ?? [])
-  if (maxDepth > 8) {
+  if (maxDepth > 12) {
     findings.push({
       dimension: 'spec-quality',
       grade: 'fail',
       rule: 'nesting-depth',
-      message: `Panel nesting depth is ${maxDepth} — too deep`,
-      suggestion: 'Flatten the panel tree. Deep nesting degrades rendering performance and readability.',
+      message: `Panel nesting depth is ${maxDepth} — excessive`,
+      suggestion: 'Excessive nesting — likely a runaway spec or wrong primitive choice. Use a recipe (data-table, nav-list) instead of hand-built atom trees.',
     })
-  } else if (maxDepth > 5) {
+  } else if (maxDepth > 8) {
     findings.push({
       dimension: 'spec-quality',
       grade: 'warn',
       rule: 'nesting-depth',
-      message: `Panel nesting depth is ${maxDepth} — approaching limit`,
+      message: `Panel nesting depth is ${maxDepth} — deep`,
+      suggestion: 'Deep nesting may indicate hand-built composition where a recipe would work better.',
     })
   }
 

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { Component, useState, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { motion } from 'motion/react'
 import type { PanePanel } from '@pane/core'
 import { Box } from './atoms/Box.js'
@@ -32,7 +32,88 @@ interface PanelRendererProps {
 // Spring configs
 const PANEL_SPRING = { type: 'spring' as const, stiffness: 400, damping: 35 }
 
-export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill, mutationHint }: PanelRendererProps) {
+// ── Per-panel error boundary ──
+// Catches render errors in a single panel so they don't blank the whole view.
+// Renders a small inline error card with the panel id and error message.
+// React requires class components for error boundaries.
+
+interface PanelErrorBoundaryProps {
+  panelId: string
+  panelAtom: string
+  children: ReactNode
+}
+
+interface PanelErrorBoundaryState {
+  error: Error | null
+}
+
+class PanelErrorBoundary extends Component<PanelErrorBoundaryProps, PanelErrorBoundaryState> {
+  state: PanelErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error): PanelErrorBoundaryState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[pane] Panel "${this.props.panelId}" (${this.props.panelAtom}) crashed:`, error, info.componentStack)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={errorPanelStyle}>
+          <div style={errorPanelLabelStyle}>RENDER ERROR · {this.props.panelAtom}</div>
+          <div style={errorPanelIdStyle}>{this.props.panelId}</div>
+          <div style={errorPanelMessageStyle}>{this.state.error.message}</div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+const errorPanelStyle: CSSProperties = {
+  padding: '10px 12px',
+  border: '1px solid var(--pane-color-danger, #ef4444)',
+  background: 'rgba(239, 68, 68, 0.06)',
+  fontFamily: 'var(--pane-font-mono)',
+  fontSize: 11,
+  color: 'var(--pane-color-text)',
+  overflow: 'hidden',
+}
+
+const errorPanelLabelStyle: CSSProperties = {
+  fontSize: 9,
+  textTransform: 'uppercase',
+  letterSpacing: 1,
+  color: 'var(--pane-color-danger, #ef4444)',
+  marginBottom: 4,
+}
+
+const errorPanelIdStyle: CSSProperties = {
+  fontSize: 10,
+  color: 'var(--pane-color-text-muted)',
+  marginBottom: 4,
+}
+
+const errorPanelMessageStyle: CSSProperties = {
+  fontSize: 10,
+  color: 'var(--pane-color-text-muted)',
+  wordBreak: 'break-word',
+}
+
+export function PanelRenderer(props: PanelRendererProps) {
+  // Wrap each panel in an error boundary so a single bad panel can't blank
+  // the entire view. The boundary catches render errors and shows an inline
+  // error card with the panel id and message — surgical, not catastrophic.
+  return (
+    <PanelErrorBoundary panelId={props.panel.id} panelAtom={props.panel.atom}>
+      <PanelRendererInner {...props} />
+    </PanelErrorBoundary>
+  )
+}
+
+function PanelRendererInner({ panel: rawPanel, onAction, onFeedback, fill, mutationHint }: PanelRendererProps) {
   // Expand recipe to atom tree if present
   const panel = rawPanel.recipe ? expandRecipe(rawPanel) : rawPanel
   const [showFeedback, setShowFeedback] = useState(false)
@@ -76,14 +157,37 @@ export function PanelRenderer({ panel: rawPanel, onAction, onFeedback, fill, mut
       case 'image':
         return <Image src={String(props.src ?? '')} {...props as any} />
 
-      case 'input':
+      case 'input': {
+        // Text-like inputs: change events are LOCAL ONLY. Every keystroke
+        // would otherwise hit the agent → 8 concurrent Claude calls per
+        // typed character. Only `submit` (Enter, button click) reaches
+        // the agent for these types.
+        //
+        // Discrete-choice inputs (toggle, select, date): change is a
+        // meaningful user decision and DOES reach the agent.
+        const inputType = String((props as any).type ?? 'text')
+        const isLocalChange = inputType === 'text' || inputType === 'textarea' || inputType === 'number'
+
         return (
           <Input
             {...props as any}
-            onSubmit={handlers['submit'] ? (v) => { handlers['submit'](); onAction?.('submit', panel.id, { value: v }) } : (v) => onAction?.('submit', panel.id, { value: v })}
-            onChange={handlers['change'] ? (v) => { handlers['change'](); onAction?.('change', panel.id, { value: v }) } : undefined}
+            onSubmit={(v) => {
+              if (handlers['submit']) {
+                handlers['submit']()
+              } else {
+                onAction?.('submit', panel.id, { value: v })
+              }
+            }}
+            onChange={isLocalChange ? undefined : (v) => {
+              if (handlers['change']) {
+                handlers['change']()
+              } else {
+                onAction?.('change', panel.id, { value: v })
+              }
+            }}
           />
         )
+      }
 
       case 'shape':
         return <Shape shape={String(props.shape ?? 'line') as any} {...props as any} />

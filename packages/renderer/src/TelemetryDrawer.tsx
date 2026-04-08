@@ -190,6 +190,111 @@ interface TelemetryDrawerProps {
   proxyUrl?: string
 }
 
+// ── Phase 4: Quality Gate Aggregation ──
+// Walks the telemetry events and counts repairs by category. Surfaces
+// patterns so we can see which prompt rules to tighten.
+
+// Repair types that count toward the destructive count.
+// `depth-hoist` is informational (content preserved) and is shown as a notice.
+const DESTRUCTIVE_REPAIRS = new Set([
+  'missing-id',
+  'duplicate-id',
+  'leaf-with-children',
+  'empty-required-prop',
+  'missing-source',
+])
+
+function QualityGateStrip({ events }: { events: TelemetryEvent[] }) {
+  const destructiveCounts: Record<string, number> = {}
+  const infoCounts: Record<string, number> = {}
+  let destructiveTotal = 0
+  let infoTotal = 0
+
+  for (const e of events) {
+    if (e.type === 'system:info' && (e.data as any)?.type === 'quality-gate:repair') {
+      const t = String((e.data as any).repairType)
+      if (DESTRUCTIVE_REPAIRS.has(t)) {
+        destructiveCounts[t] = (destructiveCounts[t] ?? 0) + 1
+        destructiveTotal++
+      } else {
+        infoCounts[t] = (infoCounts[t] ?? 0) + 1
+        infoTotal++
+      }
+    }
+  }
+  if (destructiveTotal === 0 && infoTotal === 0) return null
+
+  const sortedDestructive = Object.entries(destructiveCounts).sort((a, b) => b[1] - a[1])
+  const sortedInfo = Object.entries(infoCounts).sort((a, b) => b[1] - a[1])
+  const colorFor = (count: number): string =>
+    count > 10 ? 'var(--pane-color-danger, #ef4444)'
+      : count > 3 ? '#f59e0b'
+      : 'var(--pane-color-text-muted)'
+
+  const headlineColor =
+    destructiveTotal === 0 ? 'var(--pane-color-success, #22c55e)' : colorFor(destructiveTotal)
+  const headlineText =
+    destructiveTotal === 0
+      ? `clean${infoTotal > 0 ? ` · ${infoTotal} info` : ''}`
+      : `${destructiveTotal} repair${destructiveTotal === 1 ? '' : 's'}${infoTotal > 0 ? ` · ${infoTotal} info` : ''}`
+
+  return (
+    <div style={{
+      borderBottom: '1px solid var(--pane-color-border)',
+      padding: '8px 12px',
+      background: 'var(--pane-color-surface)',
+    }}>
+      <div style={{
+        fontFamily: 'var(--pane-font-mono)',
+        fontSize: 9,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        color: 'var(--pane-color-text-muted)',
+        marginBottom: 6,
+        display: 'flex',
+        justifyContent: 'space-between',
+      }}>
+        <span>Quality Gate</span>
+        <span style={{ color: headlineColor }}>{headlineText}</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {sortedDestructive.map(([type, count]) => (
+          <span
+            key={type}
+            style={{
+              fontFamily: 'var(--pane-font-mono)',
+              fontSize: 9,
+              padding: '2px 6px',
+              border: `1px solid ${colorFor(count)}`,
+              color: colorFor(count),
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {type} {count}
+          </span>
+        ))}
+        {sortedInfo.map(([type, count]) => (
+          <span
+            key={type}
+            style={{
+              fontFamily: 'var(--pane-font-mono)',
+              fontSize: 9,
+              padding: '2px 6px',
+              border: `1px dashed var(--pane-color-text-muted)`,
+              color: 'var(--pane-color-text-muted)',
+              whiteSpace: 'nowrap',
+              opacity: 0.7,
+            }}
+            title="informational — content preserved"
+          >
+            {type} {count}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function TelemetryDrawer({ proxyUrl }: TelemetryDrawerProps) {
   const [open, setOpen] = useState(true)
   const [tab, setTab] = useState<'telemetry' | 'design'>('telemetry')
@@ -319,6 +424,9 @@ export function TelemetryDrawer({ proxyUrl }: TelemetryDrawerProps) {
           {/* Telemetry tab */}
           {tab === 'telemetry' && (
             <div ref={scrollRef} style={listStyle}>
+              {/* Phase 4: Quality Gate aggregation — counts repairs by category */}
+              <QualityGateStrip events={events} />
+
               {events.map(event => (
                 <div key={event.id} style={eventStyle}>
                   <div style={eventHeaderStyle}>

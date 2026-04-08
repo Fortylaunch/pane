@@ -102,6 +102,7 @@ function createEmptySession(): PaneSession {
     version: 0,
     activeContext: '',
     contexts: [],
+    operations: [],
     conversation: [],
     actions: [],
     agents: [],

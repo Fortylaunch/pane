@@ -136,6 +136,7 @@ describe('validateSpec (session)', () => {
         status: 'active',
       },
     ],
+    operations: [],
     conversation: [],
     actions: [],
     agents: [],

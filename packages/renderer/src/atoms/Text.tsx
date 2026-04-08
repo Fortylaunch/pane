@@ -1,10 +1,13 @@
 import type { CSSProperties } from 'react'
 import { motion } from 'motion/react'
+import { getContrastTextColor } from './contrast.js'
 
 type TextLevel = 'heading' | 'subheading' | 'body' | 'label' | 'caption' | 'code'
 
 interface TextProps {
-  content: string
+  // unknown — Claude sometimes sends numbers, booleans, arrays, or objects.
+  // Defensive coercion in the body normalizes to a string.
+  content: unknown
   level?: TextLevel
   style?: CSSProperties
   className?: string
@@ -69,12 +72,30 @@ const LEVEL_STYLES: Record<TextLevel, CSSProperties> = {
 export function Text({ content, level = 'body', style, className }: TextProps) {
   const Tag = level === 'heading' ? 'h2' : level === 'subheading' ? 'h3' : 'p'
 
+  // Contrast enforcement: if a light background is set on this Text, force dark text
+  const contrastColor = getContrastTextColor(style)
+
+  // Defensive coercion — Claude sometimes sends numbers, booleans, or arrays
+  // as content. The atom should never crash on type mismatch.
+  let safeContent: string
+  if (content == null) {
+    safeContent = ''
+  } else if (typeof content === 'string') {
+    safeContent = content
+  } else if (Array.isArray(content)) {
+    safeContent = content.map(c => String(c)).join('\n')
+  } else if (typeof content === 'object') {
+    safeContent = JSON.stringify(content)
+  } else {
+    safeContent = String(content)
+  }
+
   // Support newlines in content
-  const parts = content.split('\n')
+  const parts = safeContent.split('\n')
 
   return (
     <motion.div layout>
-      <Tag style={{ margin: 0, whiteSpace: 'pre-wrap', ...LEVEL_STYLES[level], ...style }} className={className}>
+      <Tag style={{ margin: 0, whiteSpace: 'pre-wrap', ...LEVEL_STYLES[level], ...style, ...(contrastColor ? { color: contrastColor } : {}) }} className={className}>
         {parts.map((line, i) => (
           <span key={i}>
             {line}

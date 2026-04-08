@@ -21,6 +21,7 @@ import type {
   LayoutConfig,
 } from '../spec/types.js'
 import { emitTelemetry } from '../telemetry/index.js'
+import { DECOMPOSE_CONCURRENCY, DECOMPOSE_MIN_INPUT_LENGTH, DECOMPOSE_MIN_SIGNALS } from '../limits.js'
 
 // ── Types ──
 
@@ -107,19 +108,29 @@ function buildScaffoldUpdate(plan: DecompositionPlan, source: string): PaneSessi
 }
 
 // ── Parallel executor with concurrency limit ──
+// Resilient: a single failure must not abort sibling work. Errors are
+// returned in-band as { error } so callers can render fallback panels
+// for failed sections while successful ones still land.
+
+export type ParallelResult<R> = { ok: true; value: R } | { ok: false; error: Error }
 
 async function parallelMap<T, R>(
   items: T[],
   fn: (item: T) => Promise<R>,
   concurrency: number,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
+): Promise<ParallelResult<R>[]> {
+  const results: ParallelResult<R>[] = new Array(items.length)
   let idx = 0
 
   async function worker() {
     while (idx < items.length) {
       const i = idx++
-      results[i] = await fn(items[i])
+      try {
+        const value = await fn(items[i])
+        results[i] = { ok: true, value }
+      } catch (err) {
+        results[i] = { ok: false, error: err instanceof Error ? err : new Error(String(err)) }
+      }
     }
   }
 
@@ -136,7 +147,7 @@ export async function decomposeAndAssemble(
   config: DecomposeConfig,
 ): Promise<PaneSessionUpdate> {
   const source = 'decomposer'
-  const { planCall, sectionCall, concurrency = 3, onScaffold, onSection, onComplete } = config
+  const { planCall, sectionCall, concurrency = DECOMPOSE_CONCURRENCY, onScaffold, onSection, onComplete } = config
 
   // Step 1: Plan
   emitTelemetry('agent:request', { type: 'decompose-plan' }, { preview: `Decomposing: "${userRequest.substring(0, 60)}..."` })
@@ -162,14 +173,59 @@ export async function decomposeAndAssemble(
   const assembledPanels: PanePanel[] = new Array(plan.sections.length)
   let completedCount = 0
 
-  await parallelMap(plan.sections, async (section, ) => {
+  await parallelMap(plan.sections, async (section) => {
     const sectionIdx = plan.sections.indexOf(section)
     emitTelemetry('agent:request', { type: 'section', section: section.id }, { preview: `Generating section: ${section.label}` })
 
     const sectionStart = performance.now()
-    const panels = await sectionCall(section, contextDescription, session)
-    const sectionDur = Math.round(performance.now() - sectionStart)
+    let panels: PanePanel[]
+    try {
+      panels = await sectionCall(section, contextDescription, session)
+    } catch (err) {
+      const sectionDur = Math.round(performance.now() - sectionStart)
+      completedCount++
+      emitTelemetry('agent:response', {
+        type: 'section-error',
+        section: section.id,
+        error: String(err),
+      }, {
+        duration: sectionDur,
+        preview: `Section "${section.label}" failed (${sectionDur}ms): ${String(err).substring(0, 80)}`,
+      })
 
+      // Render a fallback panel so the section is visible as failed,
+      // not just an empty hole. The user always gets feedback.
+      const fallback: PanePanel = {
+        id: `section-${section.id}`,
+        atom: 'box',
+        props: { fill: true, padding: 'var(--pane-space-md)' },
+        source,
+        children: [
+          {
+            id: `${section.id}-error-label`,
+            atom: 'text',
+            props: { content: section.label, level: 'label' },
+            source,
+          },
+          {
+            id: `${section.id}-error-msg`,
+            atom: 'text',
+            props: {
+              content: `Section failed to generate. ${String(err).substring(0, 120)}`,
+              level: 'caption',
+            },
+            source,
+            emphasis: 'urgent',
+          },
+        ],
+      }
+      assembledPanels[sectionIdx] = fallback
+      const progressUpdate = buildProgressUpdate(plan, assembledPanels, source, completedCount)
+      onSection?.(section.id, fallback.children ?? [], progressUpdate)
+      throw err  // re-throw so parallelMap captures it; we still rendered the fallback
+    }
+
+    const sectionDur = Math.round(performance.now() - sectionStart)
     completedCount++
     emitTelemetry('agent:response', {
       type: 'section',
@@ -187,37 +243,18 @@ export async function decomposeAndAssemble(
     }
 
     assembledPanels[sectionIdx] = sectionPanel
-
-    // Progressive update — replace the skeleton with real content
-    const progressUpdate: PaneSessionUpdate = {
-      contexts: [{
-        id: 'main',
-        operation: 'update',
-        label: plan.label,
-        modality: plan.modality as any,
-        view: {
-          layout: plan.layout,
-          panels: assembledPanels.map((p, i) =>
-            p ?? buildSkeletonPanel(plan.sections[i], source)
-          ),
-        },
-      }],
-      agents: [{
-        id: source,
-        name: source,
-        state: completedCount < plan.sections.length ? 'working' : 'idle',
-        currentTask: completedCount < plan.sections.length
-          ? `${completedCount}/${plan.sections.length} sections complete`
-          : undefined,
-        lastActive: Date.now(),
-      }],
-    }
-
+    const progressUpdate = buildProgressUpdate(plan, assembledPanels, source, completedCount)
     onSection?.(section.id, panels, progressUpdate)
     return panels
   }, concurrency)
 
-  // Step 4: Final assembled view
+  // Step 4: Final assembled view — fill any holes with skeletons so the
+  // user never sees an empty panel array. The runtime's quality gate would
+  // catch this anyway, but explicit is better.
+  const finalPanels = assembledPanels.map((p, i) =>
+    p ?? buildSkeletonPanel(plan.sections[i], source)
+  )
+
   const finalUpdate: PaneSessionUpdate = {
     contexts: [{
       id: 'main',
@@ -226,7 +263,7 @@ export async function decomposeAndAssemble(
       modality: plan.modality as any,
       view: {
         layout: plan.layout,
-        panels: assembledPanels,
+        panels: finalPanels,
       },
     }],
     agents: [{ id: source, name: source, state: 'idle', lastActive: Date.now() }],
@@ -236,27 +273,74 @@ export async function decomposeAndAssemble(
   return finalUpdate
 }
 
+// Builds a progressive update with current state of assembled panels.
+// Holes get filled with skeletons so the layout never collapses.
+function buildProgressUpdate(
+  plan: DecompositionPlan,
+  assembledPanels: PanePanel[],
+  source: string,
+  completedCount: number,
+): PaneSessionUpdate {
+  return {
+    contexts: [{
+      id: 'main',
+      operation: 'update',
+      label: plan.label,
+      modality: plan.modality as any,
+      view: {
+        layout: plan.layout,
+        panels: assembledPanels.map((p, i) =>
+          p ?? buildSkeletonPanel(plan.sections[i], source)
+        ),
+      },
+    }],
+    agents: [{
+      id: source,
+      name: source,
+      state: completedCount < plan.sections.length ? 'working' : 'idle',
+      currentTask: completedCount < plan.sections.length
+        ? `${completedCount}/${plan.sections.length} sections complete`
+        : undefined,
+      lastActive: Date.now(),
+    }],
+  }
+}
+
 // ── Complexity heuristic ──
 
 /**
  * Determines if a request is complex enough to warrant decomposition.
- * Simple messages ("hello", "thanks") go direct. Complex ones
- * ("build me a risk monitor with map and news feed") get decomposed.
+ *
+ * Decomposition splits a request into sections rendered in parallel. It only
+ * helps when the request has MULTIPLE DISTINCT CONCERNS — not just a single
+ * dashboard. A single noun (even "dashboard") should go direct because
+ * decomposing it into 3 sections produces 3 calls each as expensive as the
+ * original would have been.
+ *
+ * Heuristic: require explicit plurality signals — conjunctions joining
+ * distinct concerns ("X and Y", "X with Y", "X plus Y"), or explicit
+ * multi-section language ("multiple", "several", "sections", "panels").
  */
 export function shouldDecompose(input: string): boolean {
   const text = input.toLowerCase().trim()
 
   // Too short to be complex
-  if (text.length < 30) return false
+  if (text.length < DECOMPOSE_MIN_INPUT_LENGTH) return false
 
-  // Explicit composition signals
-  const compositionSignals = [
-    'dashboard', 'monitor', 'with .* and', 'build me', 'create a',
-    'show me .* with', 'sections', 'panels', 'split', 'sidebar',
-    'map .* and', 'chart .* and', 'table .* and',
-    'multiple', 'several', 'along with', 'including',
+  // Plurality signals — multiple distinct concerns joined together
+  const pluralitySignals = [
+    /\bwith\b.*\band\b/,                  // "X with Y and Z"
+    /\b\w+\s+and\s+\w+\s+and\s+\w+/,      // "X and Y and Z"
+    /\b\w+,\s*\w+,?\s*and\s+\w+/,         // "X, Y, and Z"
+    /\bplus\b/,                           // "X plus Y"
+    /\balong with\b/,                     // "X along with Y"
+    /\bincluding\b/,                      // "X including Y, Z"
+    /\bmultiple\b/,                       // "multiple panels"
+    /\bseveral\b/,                        // "several sections"
+    /\bsections?\b/,                      // explicit sections
+    /\b\d+\s+(panels?|sections?|charts?|tables?|widgets?)\b/, // "3 panels"
   ]
 
-  const signalCount = compositionSignals.filter(s => new RegExp(s).test(text)).length
-  return signalCount >= 2
+  const signalCount = pluralitySignals.filter(re => re.test(text)).length
+  return signalCount >= DECOMPOSE_MIN_SIGNALS
 }

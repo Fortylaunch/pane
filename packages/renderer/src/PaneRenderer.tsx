@@ -2,9 +2,12 @@ import { usePaneSession, usePaneTheme, usePaneRuntime } from './context.js'
 import { PanelRenderer } from './PanelRenderer.js'
 import { Layout } from './layout/Layout.js'
 import { Input } from './atoms/Input.js'
+import { StatusStrip } from './StatusStrip.js'
+import { ActionBar } from './ActionBar.js'
 import { themeToStyleString } from '@pane/theme'
 import { createInput, createFeedback, LAYOUT_FILL_DEFAULTS } from '@pane/core'
-import { useCallback, useState, useMemo, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo, type CSSProperties } from 'react'
+import { viewTransitionsSupported } from './hooks/useViewTransition.js'
 import { AnimatePresence, motion } from 'motion/react'
 import { TelemetryDrawer } from './TelemetryDrawer.js'
 
@@ -19,10 +22,37 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showObservability, setShowObservability] = useState(false)
+  // Streaming progress tracking — number of panels that have landed in the
+  // active context since the current loading turn started.
+  const [streamProgress, setStreamProgress] = useState(0)
+  const [thinkingElapsed, setThinkingElapsed] = useState(0)
+  const [doneFlash, setDoneFlash] = useState(false)
+  const turnStartPanelsRef = useRef(0)
+  const turnStartTimeRef = useRef(0)
 
   const activeContext = session.contexts.find(c => c.id === session.activeContext)
   const modality = activeContext?.modality ?? 'conversational'
   const hasMultipleContexts = session.contexts.length > 1
+
+  // Tick elapsed time while loading
+  useEffect(() => {
+    if (!loading) {
+      setThinkingElapsed(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setThinkingElapsed(Math.floor((Date.now() - turnStartTimeRef.current) / 100) / 10)
+    }, 100)
+    return () => clearInterval(interval)
+  }, [loading])
+
+  // Track panel arrivals during a loading turn
+  useEffect(() => {
+    if (!loading || !activeContext) return
+    const currentCount = activeContext.view?.panels?.length ?? 0
+    const delta = currentCount - turnStartPanelsRef.current
+    if (delta > 0) setStreamProgress(delta)
+  }, [session.version, loading, activeContext])
 
   const handleAction = useCallback((event: string, panelId: string, payload?: Record<string, unknown>) => {
     const input = createInput(`__action:${event}:${panelId}`, 'text', session.actions)
@@ -34,18 +64,26 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
 
   const handleUserInput = useCallback(async (value: string) => {
     if (!value.trim()) return
+    // Capture turn start state for streaming progress tracking
+    const currentCtx = session.contexts.find(c => c.id === session.activeContext)
+    turnStartPanelsRef.current = currentCtx?.view?.panels?.length ?? 0
+    turnStartTimeRef.current = Date.now()
+    setStreamProgress(0)
     setLoading(true)
     setError(null)
     try {
       const input = createInput(value, 'text', session.actions)
       await runtime.handleInput(input)
+      // Done flash — brief accent pulse on the view area
+      setDoneFlash(true)
+      setTimeout(() => setDoneFlash(false), 600)
     } catch (err) {
       console.error('Pane input error:', err)
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
-  }, [runtime, session.actions])
+  }, [runtime, session.actions, session.contexts, session.activeContext])
 
   const handleFeedback = useCallback((panelId: string, type: 'positive' | 'negative', agentSource: string) => {
     if (!activeContext) return
@@ -78,9 +116,11 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
     }
   }, [modality])
 
+  // View Transitions API — progressive enhancement, checked once
+  const hasViewTransitions = useMemo(() => viewTransitionsSupported(), [])
+
   const workingAgents = session.agents.filter(a => a.state === 'working')
   const completedActions = session.actions.filter(a => a.status === 'completed')
-  const inFlightActions = session.actions.filter(a => a.status === 'executing')
 
   // Eval feedback
   const evalResult = runtime.getLastEvalResult?.()
@@ -91,6 +131,23 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
   const [specEvalOn, setSpecEvalOn] = useState(() => runtime.isSpecEvalEnabled?.() ?? false)
   const [visualEvalOn, setVisualEvalOn] = useState(() => runtime.isVisualEvalEnabled?.() ?? false)
   const [designReviewOn, setDesignReviewOn] = useState(() => runtime.isDesignReviewEnabled?.() ?? false)
+
+  // ── Phase 1: first-paint timing baseline ──
+  // Fires after React commits a new session.version. Pair with handleInput:start
+  // to get end-to-end input → paint timing in the Performance tab.
+  useEffect(() => {
+    if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+      try {
+        performance.mark(`pane:firstPaint:v${session.version}`)
+        // Schedule on rAF to capture actual paint, not just commit
+        requestAnimationFrame(() => {
+          try {
+            performance.mark(`pane:painted:v${session.version}`)
+          } catch {}
+        })
+      } catch {}
+    }
+  }, [session.version])
 
   const toggleSpecEval = useCallback(() => {
     const next = !specEvalOn
@@ -117,7 +174,16 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
         :root { ${themeToStyleString(theme)} }
         @keyframes pane-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
         @keyframes pane-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes pane-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
+        ::view-transition-old(pane-view) {
+          animation: 120ms ease-out both fade-out;
+        }
+        ::view-transition-new(pane-view) {
+          animation: 120ms ease-in both fade-in;
+        }
+        @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--pane-color-border); border-radius: 0; }
@@ -237,19 +303,55 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
 
       {/* Top bar — always visible */}
       <div style={topBarStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {activeContext ? (
-            <>
-              <span style={modalityDotStyle(modality)} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {activeContext ? (
+              <>
+                <span style={modalityDotStyle(modality)} />
+                <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
+                  {activeContext.label || modality}
+                </span>
+              </>
+            ) : (
               <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
-                {activeContext.label || modality}
+                PANE
               </span>
-            </>
-          ) : (
-            <span style={{ fontSize: '10px', fontFamily: 'var(--pane-font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pane-color-text-muted)' }}>
-              PANE
-            </span>
-          )}
+            )}
+          </div>
+
+          {/* Thinking / done indicator — prominent and visible while user looks at the view */}
+          <AnimatePresence mode="wait">
+            {loading && (
+              <motion.div
+                key="thinking"
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.2 }}
+                style={thinkingIndicatorStyle}
+              >
+                <span style={thinkingDotStyle} />
+                <span style={thinkingLabelStyle}>THINKING</span>
+                {streamProgress > 0 && (
+                  <span style={thinkingProgressStyle}>{streamProgress} panel{streamProgress === 1 ? '' : 's'}</span>
+                )}
+                <span style={thinkingElapsedStyle}>{thinkingElapsed.toFixed(1)}s</span>
+              </motion.div>
+            )}
+            {!loading && doneFlash && (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -8 }}
+                transition={{ duration: 0.2 }}
+                style={doneIndicatorStyle}
+              >
+                <span style={doneDotStyle} />
+                <span style={doneLabelStyle}>DONE</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
           <button onClick={toggleSpecEval} style={{ ...toggleBtnStyle, color: specEvalOn ? 'var(--pane-color-accent)' : 'var(--pane-color-text-muted)' }}>
@@ -303,16 +405,27 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
       </AnimatePresence>
 
       {/* View area — overflow adapts to layout fill contract */}
-      <div style={getViewAreaStyle(activeContext?.view?.layout)} data-pane-view>
+      <div
+        style={{
+          ...getViewAreaStyle(activeContext?.view?.layout),
+          // Done flash — brief accent border pulse when streaming finishes
+          boxShadow: doneFlash ? 'inset 0 0 0 1px var(--pane-color-accent)' : 'inset 0 0 0 1px transparent',
+          transition: 'box-shadow 0.6s ease-out',
+        }}
+        data-pane-view
+      >
         <AnimatePresence mode="wait">
           {activeContext ? (
             <motion.div
               key={activeContext.id + '-' + session.version}
-              initial={{ opacity: 0 }}
+              initial={{ opacity: hasViewTransitions ? 1 : 0 }}
               animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: isReplaceView ? 0.15 : 0.05 }}
-              style={getViewContentStyle(modality)}
+              exit={{ opacity: hasViewTransitions ? 1 : 0 }}
+              transition={{ duration: hasViewTransitions ? 0 : (isReplaceView ? 0.15 : 0.05) }}
+              style={{
+                ...getViewContentStyle(modality),
+                viewTransitionName: 'pane-view',
+              } as CSSProperties}
             >
               <Layout config={activeContext.view.layout}>
                 {activeContext.view.panels.map(panel => {
@@ -342,49 +455,22 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
         </AnimatePresence>
       </div>
 
-      {/* In-flight actions */}
-      <AnimatePresence>
-        {inFlightActions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            style={actionBarStyle}
-          >
-            {inFlightActions.map(a => (
-              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={pulsingDotStyle} />
-                <span>{a.label}</span>
-                {a.progress !== undefined && (
-                  <div style={progressBarOuter}>
-                    <motion.div
-                      style={progressBarInner}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${a.progress * 100}%` }}
-                    />
-                  </div>
-                )}
-                <span style={obsMutedStyle}>via {a.source}</span>
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Operation status strip — shows all async operation lifecycle */}
+      <StatusStrip
+        operations={session.operations}
+        onDismiss={(id) => {
+          // Operations auto-clean from the tracker; this is a UI-level dismiss
+          // The session will update on next tick when the tracker notifies
+        }}
+        onRetry={() => {
+          // Re-send last user message
+          const lastMsg = session.conversation.filter(c => c.role === 'user').pop()
+          if (lastMsg) handleUserInput(lastMsg.content)
+        }}
+      />
 
-      {/* Loading bar */}
-      <AnimatePresence>
-        {loading && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            style={loadingBarStyle}
-          >
-            <div style={shimmerStyle} />
-            <span style={{ position: 'relative', zIndex: 1 }}>Working...</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Action bar — proposed (confirm/cancel), executing, completed */}
+      <ActionBar actions={session.actions} runtime={runtime} />
 
       {/* Error display */}
       <AnimatePresence>
@@ -397,25 +483,6 @@ export function PaneRenderer({ proxyUrl }: PaneRendererProps = {}) {
             onClick={() => setError(null)}
           >
             {error} <span style={{ opacity: 0.5 }}>(click to dismiss)</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Agent status */}
-      <AnimatePresence>
-        {workingAgents.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            style={statusBarStyle}
-          >
-            {workingAgents.map(a => (
-              <span key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={pulsingDotStyle} />
-                {a.name}: {a.currentTask ?? 'working...'}
-              </span>
-            ))}
           </motion.div>
         )}
       </AnimatePresence>
@@ -472,6 +539,75 @@ const topBarStyle: CSSProperties = {
   borderBottom: '1px solid var(--pane-color-border)',
   background: 'var(--pane-color-surface)',
   minHeight: '24px',
+}
+
+// ── Thinking / Done indicators ──
+const thinkingIndicatorStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '2px 8px',
+  border: '1px solid var(--pane-color-accent)',
+  background: 'rgba(0, 230, 118, 0.08)',
+}
+
+const thinkingDotStyle: CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  background: 'var(--pane-color-accent)',
+  animation: 'pane-pulse 1.2s ease-in-out infinite',
+  flexShrink: 0,
+}
+
+const thinkingLabelStyle: CSSProperties = {
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  color: 'var(--pane-color-accent)',
+  fontWeight: 600,
+}
+
+const thinkingProgressStyle: CSSProperties = {
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  color: 'var(--pane-color-text-muted)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+}
+
+const thinkingElapsedStyle: CSSProperties = {
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  color: 'var(--pane-color-text-muted)',
+  marginLeft: '2px',
+}
+
+const doneIndicatorStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '2px 8px',
+  border: '1px solid var(--pane-color-success, #22c55e)',
+  background: 'rgba(34, 197, 94, 0.08)',
+}
+
+const doneDotStyle: CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  background: 'var(--pane-color-success, #22c55e)',
+  flexShrink: 0,
+}
+
+const doneLabelStyle: CSSProperties = {
+  fontSize: '9px',
+  fontFamily: 'var(--pane-font-mono)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  color: 'var(--pane-color-success, #22c55e)',
+  fontWeight: 600,
 }
 
 const evalBarStyle: CSSProperties = {
@@ -675,32 +811,3 @@ const statusBarStyle: CSSProperties = {
   gap: '16px',
 }
 
-const actionBarStyle: CSSProperties = {
-  padding: '4px 12px',
-  fontSize: '10px',
-  color: 'var(--pane-color-text)',
-  background: 'var(--pane-color-surface)',
-  borderTop: '1px solid var(--pane-color-border)',
-}
-
-const pulsingDotStyle: CSSProperties = {
-  width: 6, height: 6,
-  borderRadius: '50%',
-  background: 'var(--pane-color-accent)',
-  animation: 'pane-pulse 1.5s ease infinite',
-  flexShrink: 0,
-}
-
-const progressBarOuter: CSSProperties = {
-  width: '60px',
-  height: '4px',
-  background: 'var(--pane-color-border)',
-  borderRadius: '2px',
-  overflow: 'hidden',
-}
-
-const progressBarInner: CSSProperties = {
-  height: '100%',
-  background: 'var(--pane-color-accent)',
-  borderRadius: '2px',
-}

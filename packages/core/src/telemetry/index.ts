@@ -12,6 +12,7 @@ export type TelemetryEventType =
   | 'api:request'          // outgoing HTTP/WS call
   | 'api:response'         // incoming response
   | 'api:error'            // API error
+  | 'api:recovery'         // recovered from truncated JSON
   | 'visual:capture'       // screenshot taken
   | 'visual:evaluate'      // screenshot sent for eval
   | 'visual:approved'      // eval says looks good
@@ -39,7 +40,8 @@ type TelemetryListener = (event: TelemetryEvent) => void
 let eventCounter = 0
 const listeners = new Set<TelemetryListener>()
 const history: TelemetryEvent[] = []
-const MAX_HISTORY = 200
+import { TELEMETRY_MAX_HISTORY } from '../limits.js'
+const MAX_HISTORY = TELEMETRY_MAX_HISTORY
 
 export function updateTelemetry(
   id: string,

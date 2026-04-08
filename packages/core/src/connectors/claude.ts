@@ -5,9 +5,13 @@
 // Normalizes Claude's output to match Pane spec.
 // ────────────────────────────────────────────
 
-import type { PaneAgent, PaneInput, PaneSession, PaneSessionUpdate, PaneTrackedAction } from '../spec/types.js'
+import type { PaneAgent, PaneInput, PaneSession, PaneSessionUpdate, PaneTrackedAction, MutationClassification } from '../spec/types.js'
 import type { ClaudeConnectorConfig } from './types.js'
 import { emitTelemetry, updateTelemetry } from '../telemetry/index.js'
+import { applyBudget, compressSession, estimateTokens, type ContextComponents } from '../context/budget.js'
+import { getSystemPrompt } from '../context/prompt-tiers.js'
+import { shouldIncludeImage } from '../context/image-gate.js'
+import { MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS_SHORT, MAX_OUTPUT_TOKENS_SECTION, CONVERSATION_WINDOW, SECTION_SYSTEM_PROMPT_MAX_CHARS } from '../limits.js'
 
 const DEFAULT_SYSTEM_PROMPT = `You are composing a view on the Pane surface. Pane is a dynamic workspace where interfaces are generated from atomic primitives — not selected from a component library. The quality of what you render directly affects a human's ability to think, decide, and act. Treat every composition as a design decision with consequences.
 
@@ -48,7 +52,7 @@ Use "operation": "create" for the first response, "update" for subsequent ones.
 
 ## The 16 Atoms
 
-BOX — Container. Must have at least one child. Max nesting: 4 levels. Use "atom": "box", "children": [...]. Props: background, borderColor, padding, gap, direction ("row"|"column"), radius, flex. CRITICAL: This is a dark theme. NEVER use white, light, or bright backgrounds on boxes. Use dark colors only: #18181b, #27272a, #1e293b, rgba(255,255,255,0.05). If you need visual distinction between cards, use subtle border colors or very slight background variations within the dark palette.
+BOX — Container. Must have at least one child. Use "atom": "box", "children": [...]. Props: background, borderColor, padding, gap, direction ("row"|"column"), radius, flex. PREFER the data-table recipe over manually nesting box rows for tabular data — it's shorter and renders cleaner. CRITICAL: This is a dark theme. NEVER use white, light, or bright backgrounds on boxes. Use dark colors only: #18181b, #27272a, #1e293b, rgba(255,255,255,0.05). If you need visual distinction between cards, use subtle border colors or very slight background variations within the dark palette.
 
 TEXT — Content. Must have semantic role. Use "atom": "text", "props": { "content": "...", "level": "body" }. Levels: heading, subheading, body, label, caption, code. Body text: 50-65 chars per line. Max 3 typographic levels per view.
 
@@ -58,7 +62,7 @@ INPUT — User entry. Use "atom": "input", "props": { "type": "text", "placehold
 
 SHAPE — SVG marks. Use "atom": "shape", "props": { "shape": "line" }. Shapes: line, rect, circle, path. Use semantic colors only. Never decorative.
 
-FRAME — Embedded content. Use "atom": "frame", "props": { "src": "..." }. Must show boundary and loading state.
+FRAME — Embedded content or interactive canvas. For URLs: "props": { "src": "..." }. For self-contained interactive content (games, visualizations, animations): "props": { "html": "<full HTML document with inline CSS+JS>", "title": "label" }. The html prop renders in a sandboxed iframe. Always include a "title" and optionally "loading" text. Frame does NOT accept children — put ALL content in the html string.
 
 ICON — Symbols. Use "atom": "icon", "props": { "name": "check" }. Available: check, x, arrow_right, plus, search, alert, info. Must pair with text label unless universally clear.
 
@@ -90,7 +94,7 @@ STATUS — State indicator. "recipe": "status", "props": { "label": "API", "stat
 
 CARD — Container with title. "recipe": "card", "props": { "title": "Settings", "description": "Configure your workspace" }. Can include children.
 
-DATA-TABLE — Tabular data. "recipe": "data-table", "props": { "columns": ["Name", "Role"], "rows": [["Alice", "Admin"], ["Bob", "User"]] }.
+DATA-TABLE — Tabular data. "recipe": "data-table", "props": { "columns": ["Name", "Role"], "rows": [["Alice", "Admin"], ["Bob", "User"]] }. **MANDATORY for ANY tabular data.** If you find yourself building rows with nested boxes (row-1, row-2, table-headers, etc.) — STOP and use this recipe instead. Manual table composition is forbidden because it generates 5x more tokens, exceeds nesting limits, and renders worse than this recipe. The recipe handles columns, rows, headers, alignment, and overflow automatically.
 
 EDITOR — Text composition. "recipe": "editor", "props": { "placeholder": "Write here...", "submitLabel": "Save" }.
 
@@ -236,9 +240,32 @@ Respond with a JSON object containing TWO fields:
     "checks": "Tufte: ok. Cooper: ok. Ive: ok. Norman: ok. Yablonski: ok. VanClef: ok."
   },
   "update": {
-    ...the PaneSessionUpdate object...
+    "contexts": [{
+      "id": "main",
+      "operation": "create",
+      "label": "...",
+      "modality": "...",
+      "view": {
+        "layout": { "pattern": "..." },
+        "panels": [
+          { ...panel 1... },
+          { ...panel 2... }
+        ]
+      }
+    }]
   }
 }
+
+## CRITICAL: Key Ordering for Streaming
+
+The system parses your response as it streams. To enable progressive rendering, you MUST emit keys in this order inside each "view" object:
+
+1. "layout" — always first
+2. "panels" — always second
+
+And inside each panel object, emit "id" and "atom" first so the panel can be identified before its full props arrive.
+
+This ordering lets the user see panels appear as they're generated instead of waiting for the full response. Failing to emit "layout" before "panels" will delay rendering by 30+ seconds.
 
 Keep "thinking" CONCISE — one sentence per field, max 3-5 design decisions. The spec ("update") gets the detail, not the thinking. No markdown fences, just the JSON object.`
 
@@ -248,7 +275,7 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
     proxyUrl,
     model = 'claude-sonnet-4-6',
     systemPrompt = DEFAULT_SYSTEM_PROMPT,
-    maxTokens = 4096,
+    maxTokens = MAX_OUTPUT_TOKENS,
   } = config
 
   const endpoint = proxyUrl ?? 'https://api.anthropic.com/v1/messages'
@@ -261,29 +288,63 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
     // Include eval findings from last response so Claude can self-correct
     const evalFindings = (session as any).__lastEvalFindings as string[] | undefined
 
-    const sessionContext = JSON.stringify({
-      activeContext: session.activeContext,
-      contexts: session.contexts.map(c => ({ id: c.id, label: c.label, modality: c.modality, status: c.status })),
-      recentConversation: session.conversation.slice(-10),
-      activeActions: session.actions.filter(a => a.status === 'executing' || a.status === 'proposed'),
-      ...(evalFindings && evalFindings.length > 0 ? { evalIssuesFromLastResponse: evalFindings } : {}),
-    }, null, 2)
-
     // Mutation context
     const mutationPrompt = (session as any).__mutationPrompt as string | undefined
-    const screenCapture = (session as any).__screenCapture as string | undefined
+    const classification = (session as any).__mutationClassification as MutationClassification | undefined
+    const rawScreenCapture = (session as any).__screenCapture as string | undefined
 
-    // Build message content — include screen capture as vision if available
-    let messageContent: any
+    // Image gating — only include screenshot when it adds value
+    const includeImage = rawScreenCapture && !isFirst && classification
+      ? shouldIncludeImage(classification)
+      : false
+    const screenCapture = includeImage ? rawScreenCapture : undefined
+
+    // Session state — use compressed format for subsequent calls
+    const sessionContext = isFirst
+      ? undefined
+      : compressSession(session)
+
+    // System prompt tiering — full on first call, compact on subsequent
+    const tieredPrompt = getSystemPrompt(systemPrompt, isFirst)
+
+    // Assemble context components for budget manager
+    const components: ContextComponents = {
+      systemPrompt: tieredPrompt,
+      userMessage,
+      sessionContext,
+      mutationPrompt,
+      screenCapture,
+      evalFindings: evalFindings ?? undefined,
+      conversation: isFirst ? undefined : session.conversation.slice(-CONVERSATION_WINDOW).map(c => ({
+        role: c.role, content: c.content,
+      })),
+    }
+
+    // Apply budget — prune if over token limit
+    const budgetResult = applyBudget(components)
+
+    if (budgetResult.wasPruned) {
+      emitTelemetry('system:info', {
+        type: 'context-budget-pruned',
+        totalTokens: budgetResult.totalTokens,
+        pruned: budgetResult.pruned,
+      }, { preview: `Context pruned: ${budgetResult.pruned.join(', ')} → ${budgetResult.totalTokens} tokens` })
+    }
+
+    const ctx = budgetResult.components
+
+    // Build message content from budgeted components
     const textParts = [
-      mutationPrompt ? `${mutationPrompt}\n\n` : '',
-      isFirst ? '' : `Session state:\n${sessionContext}\n\n`,
+      ctx.mutationPrompt ? `${ctx.mutationPrompt}\n\n` : '',
+      ctx.sessionContext ? `Session state:\n${ctx.sessionContext}\n\n` : '',
+      ctx.evalFindings?.length ? `Issues from last response:\n${ctx.evalFindings.join('\n')}\n\n` : '',
       `User input: ${userMessage}`,
     ].join('')
 
-    if (screenCapture && !isFirst) {
-      const base64 = screenCapture.includes(',') ? screenCapture.split(',')[1] : screenCapture
-      const mediaType = screenCapture.includes('image/png') ? 'image/png' : 'image/jpeg'
+    let messageContent: any
+    if (ctx.screenCapture) {
+      const base64 = ctx.screenCapture.includes(',') ? ctx.screenCapture.split(',')[1] : ctx.screenCapture
+      const mediaType = ctx.screenCapture.includes('image/png') ? 'image/png' : 'image/jpeg'
       messageContent = [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
         { type: 'text', text: textParts },
@@ -296,7 +357,7 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
       model,
       max_tokens: maxTokens,
       ...(shouldStream ? { stream: true } : {}),
-      system: systemPrompt,
+      system: ctx.systemPrompt,
       messages: [
         { role: 'user', content: messageContent },
       ],
@@ -323,8 +384,28 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
     let text: string
 
     if (shouldStream && res.body) {
-      // Stream SSE response
-      text = await readStream(res.body, callStart)
+      // Stream SSE response with progressive panel extraction.
+      // Streamed panels MUST go through normalizePanel just like the
+      // non-streaming path — otherwise they bypass atom recovery, default
+      // source attribution, and prop coercion. Skipping this caused 100%
+      // missing-source repairs in the streaming path.
+      const extractorCb: ExtractorCallbacks | undefined = (config.onStreamPanel || config.onStreamLayout)
+        ? {
+            onLayout: (layout) => {
+              config.onStreamLayout?.(layout)
+            },
+            onPanel: (panel) => {
+              const normalized = normalizePanel(panel)
+              config.onStreamPanel?.(normalized, {
+                id: 'main',
+                label: undefined,
+                modality: undefined,
+                layout: undefined,
+              })
+            },
+          }
+        : undefined
+      text = await readStream(res.body, callStart, config.onStreamChunk, extractorCb)
     } else {
       // Regular response
       const data = await res.json()
@@ -338,21 +419,13 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
     }
 
     try {
-      // Strip markdown fences aggressively — Claude often wraps in ```json
-      let cleaned = text.trim()
-      // Remove opening fence (with optional language tag)
-      cleaned = cleaned.replace(/^```\w*\s*\n?/, '')
-      // Remove closing fence
-      cleaned = cleaned.replace(/\n?\s*```\s*$/, '')
-      cleaned = cleaned.trim()
-
-      // If still not starting with {, try to find the JSON object
-      if (!cleaned.startsWith('{')) {
-        const firstBrace = cleaned.indexOf('{')
-        const lastBrace = cleaned.lastIndexOf('}')
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-          cleaned = cleaned.substring(firstBrace, lastBrace + 1)
-        }
+      // Extract the first complete JSON object from the response, ignoring
+      // any markdown fences, leading explanation, or trailing content.
+      // Walks brace depth respecting strings/escapes — robust against
+      // ```json wrappers, trailing newlines, and post-JSON commentary.
+      const cleaned = extractFirstJsonObject(text)
+      if (!cleaned) {
+        throw new Error('No JSON object found in response')
       }
 
       const raw = JSON.parse(cleaned)
@@ -404,11 +477,47 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
       }
 
       const normalized = normalizeUpdate(updateRaw, isFirst)
+
+      // Detect empty/malformed responses — Claude returned thinking but no recognizable shape
+      const hasContexts = (normalized.contexts?.length ?? 0) > 0
+      const hasActions = (normalized.actions?.length ?? 0) > 0
+      if (!hasContexts && !hasActions) {
+        const keys = Object.keys(updateRaw ?? {}).join(', ')
+        console.warn('[pane:claude] Unrecognized update shape — raw keys:', keys)
+        console.warn('[pane:claude] Raw sample:', JSON.stringify(updateRaw).substring(0, 500))
+        emitTelemetry('api:error', {
+          type: 'unrecognized-shape',
+          rawKeys: keys,
+          rawSample: JSON.stringify(updateRaw).substring(0, 200),
+        }, {
+          preview: `Agent returned unrecognized shape — keys: [${keys || 'none'}]`,
+        })
+      }
+
       return normalized
     } catch (parseErr) {
       console.error('[pane:claude] JSON parse failed:', parseErr)
       console.error('[pane:claude] First 200 chars of cleaned text:', text.trim().substring(0, 200))
       console.error('[pane:claude] Last 200 chars:', text.trim().slice(-200))
+
+      // ── Truncation recovery ──
+      // When Claude hits its output token limit mid-spec, the JSON is truncated.
+      // Attempt to close open braces/brackets and recover a partial but valid structure.
+      const recovered = recoverTruncatedJson(text.trim())
+      if (recovered) {
+        const updateRaw = recovered.update ?? recovered
+        if (updateRaw.contexts && Array.isArray(updateRaw.contexts) && updateRaw.contexts.length > 0) {
+          emitTelemetry('api:recovery', {
+            type: 'truncated-json',
+            originalLength: text.length,
+            contextsRecovered: updateRaw.contexts.length,
+          }, { preview: `Recovered ${updateRaw.contexts.length} context(s) from truncated JSON` })
+
+          const normalized = normalizeUpdate(updateRaw, isFirst)
+          return normalized
+        }
+      }
+
       emitTelemetry('api:error', {
         error: String(parseErr),
         textStart: text.trim().substring(0, 100),
@@ -437,7 +546,7 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
 
   const emptySession: PaneSession = {
     id: '', version: 0, activeContext: '',
-    contexts: [], conversation: [], actions: [],
+    contexts: [], operations: [], conversation: [], actions: [],
     agents: [], artifacts: [], feedback: [],
   }
 
@@ -456,14 +565,160 @@ export function claudeAgent(config: ClaudeConnectorConfig): PaneAgent {
 
 // ── Normalize Claude's output to match Pane spec ──
 
+// ── Phase 2: Streaming Panel Extractor ──
+// Walks the accumulated stream buffer looking for completed panel objects
+// inside a `panels: [...]` array. Emits each panel via onPanel as soon as
+// its closing brace lands. Holds panels until the layout key has arrived
+// so the renderer never has to guess the layout pattern.
+//
+// State transitions:
+//   IDLE → seen `"panels"` key → SEEKING_BRACKET
+//   SEEKING_BRACKET → seen `[` → IN_ARRAY
+//   IN_ARRAY → top-level `{` (depth 1) → IN_PANEL
+//   IN_PANEL → matching `}` (depth 0) → emit panel, IN_ARRAY
+//   IN_ARRAY → `]` at depth 0 → DONE
+
+interface StreamExtractorState {
+  cursor: number               // how far into the buffer we've processed
+  layoutKey: string | null     // captured layout pattern, null until found
+  contextLabel: string | null  // captured context label
+  contextModality: string | null // captured modality
+  pendingPanels: any[]         // panels parsed before layout arrived
+  emittedCount: number         // total panels emitted via onPanel
+  inPanelsArray: boolean       // are we inside a `panels: [...]` block
+  panelDepth: number           // current brace depth inside the panels array
+  panelStart: number           // where the current panel object started
+  inString: boolean            // currently inside a JSON string literal
+  escape: boolean              // previous char was a backslash
+}
+
+function createExtractor(): StreamExtractorState {
+  return {
+    cursor: 0,
+    layoutKey: null,
+    contextLabel: null,
+    contextModality: null,
+    pendingPanels: [],
+    emittedCount: 0,
+    inPanelsArray: false,
+    panelDepth: 0,
+    panelStart: -1,
+    inString: false,
+    escape: false,
+  }
+}
+
+interface ExtractorCallbacks {
+  onLayout?: (layout: { pattern: string; label?: string; modality?: string }) => void
+  onPanel?: (panel: any) => void
+}
+
+function extractFromBuffer(buffer: string, state: StreamExtractorState, cb: ExtractorCallbacks): void {
+  // Try to find layout key if we haven't yet — cheap regex scan
+  if (!state.layoutKey) {
+    const layoutMatch = buffer.match(/"layout"\s*:\s*\{\s*"pattern"\s*:\s*"([^"]+)"/)
+    if (layoutMatch) {
+      state.layoutKey = layoutMatch[1]
+      // Also capture label and modality if present
+      const labelMatch = buffer.match(/"label"\s*:\s*"([^"]+)"/)
+      const modalityMatch = buffer.match(/"modality"\s*:\s*"([^"]+)"/)
+      if (labelMatch) state.contextLabel = labelMatch[1]
+      if (modalityMatch) state.contextModality = modalityMatch[1]
+      cb.onLayout?.({
+        pattern: state.layoutKey,
+        label: state.contextLabel ?? undefined,
+        modality: state.contextModality ?? undefined,
+      })
+      // Flush any panels that arrived before the layout
+      for (const panel of state.pendingPanels) {
+        cb.onPanel?.(panel)
+        state.emittedCount++
+      }
+      state.pendingPanels = []
+    }
+  }
+
+  // Find the panels array start if we haven't entered it yet
+  if (!state.inPanelsArray) {
+    // Match `"panels"` key followed by `:` and `[`
+    const panelsMatch = /"panels"\s*:\s*\[/g
+    panelsMatch.lastIndex = state.cursor
+    const m = panelsMatch.exec(buffer)
+    if (m) {
+      state.inPanelsArray = true
+      state.cursor = m.index + m[0].length
+      state.panelDepth = 0
+    } else {
+      // Not yet — wait for more bytes
+      return
+    }
+  }
+
+  // Walk the buffer from cursor, tracking brace depth and string state
+  for (let i = state.cursor; i < buffer.length; i++) {
+    const ch = buffer[i]
+
+    if (state.escape) {
+      state.escape = false
+      continue
+    }
+    if (ch === '\\' && state.inString) {
+      state.escape = true
+      continue
+    }
+    if (ch === '"') {
+      state.inString = !state.inString
+      continue
+    }
+    if (state.inString) continue
+
+    if (ch === '{') {
+      if (state.panelDepth === 0) {
+        // Start of a new top-level panel object
+        state.panelStart = i
+      }
+      state.panelDepth++
+    } else if (ch === '}') {
+      state.panelDepth--
+      if (state.panelDepth === 0 && state.panelStart >= 0) {
+        // Completed a panel object
+        const panelJson = buffer.slice(state.panelStart, i + 1)
+        try {
+          const panel = JSON.parse(panelJson)
+          if (state.layoutKey) {
+            cb.onPanel?.(panel)
+            state.emittedCount++
+          } else {
+            state.pendingPanels.push(panel)
+          }
+        } catch {
+          // Panel JSON couldn't parse — skip silently. The full-response
+          // path at stream end will catch it.
+        }
+        state.panelStart = -1
+      }
+    } else if (ch === ']' && state.panelDepth === 0) {
+      // End of panels array — done streaming this context's panels
+      state.cursor = i + 1
+      state.inPanelsArray = false
+      return
+    }
+  }
+  state.cursor = buffer.length
+}
+
 // ── SSE Stream Reader ──
 
-async function readStream(body: ReadableStream<Uint8Array>, callStart: number): Promise<string> {
+async function readStream(body: ReadableStream<Uint8Array>, callStart: number, onChunk?: (text: string, accumulated: string) => void, extractorCb?: ExtractorCallbacks): Promise<string> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let accumulated = ''
   let chunkCount = 0
   let buffer = ''
+
+  // Phase 2: streaming panel extractor — runs on every chunk to find
+  // completed panels and emit them via extractorCb.onPanel
+  const extractor = extractorCb ? createExtractor() : null
 
   // Create a single telemetry event that we update in place
   const streamEvent = emitTelemetry('api:response', {
@@ -494,6 +749,14 @@ async function readStream(body: ReadableStream<Uint8Array>, callStart: number): 
           if (event.type === 'content_block_delta' && event.delta?.text) {
             accumulated += event.delta.text
             chunkCount++
+
+            // Notify caller of streaming progress
+            onChunk?.(event.delta.text, accumulated)
+
+            // Phase 2: try to extract completed panels from the new bytes
+            if (extractor && extractorCb) {
+              extractFromBuffer(accumulated, extractor, extractorCb)
+            }
 
             // Update the single event in place — telemetry drawer shows live content
             const dur = Math.round(performance.now() - callStart)
@@ -531,34 +794,162 @@ async function readStream(body: ReadableStream<Uint8Array>, callStart: number): 
   return accumulated
 }
 
+// ── Truncated JSON Recovery ──
+// When Claude hits its output token limit, the JSON response is cut off mid-stream.
+// This function attempts to close open braces/brackets to recover a partial but
+// valid JSON structure. A partial view is better than a total failure.
+
+/**
+ * Extract the first complete JSON object from a string, ignoring markdown
+ * fences, leading explanation text, or trailing content. Walks brace depth
+ * respecting strings/escapes so it handles `}` characters inside string
+ * values correctly.
+ *
+ * Returns null if no complete object is found.
+ */
+function extractFirstJsonObject(text: string): string | null {
+  if (!text) return null
+
+  // Find the first { — this skips markdown fences, leading explanation, etc.
+  const start = text.indexOf('{')
+  if (start === -1) return null
+
+  let depth = 0
+  let inString = false
+  let escape = false
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+
+    if (escape) { escape = false; continue }
+    if (ch === '\\' && inString) { escape = true; continue }
+    if (ch === '"') { inString = !inString; continue }
+    if (inString) continue
+
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) {
+        // Found the matching close brace — return the substring
+        return text.substring(start, i + 1)
+      }
+    }
+  }
+
+  // Reached end of text without closing all braces — let recoverTruncatedJson
+  // handle it via the catch block in the caller.
+  return null
+}
+
+function recoverTruncatedJson(text: string): any | null {
+  try {
+    // First, strip markdown fences the same way the main parser does
+    let cleaned = text.trim()
+    cleaned = cleaned.replace(/^```\w*\s*\n?/, '')
+    cleaned = cleaned.replace(/\n?\s*```\s*$/, '')
+    cleaned = cleaned.trim()
+
+    if (!cleaned.startsWith('{')) {
+      const firstBrace = cleaned.indexOf('{')
+      if (firstBrace !== -1) {
+        cleaned = cleaned.substring(firstBrace)
+      } else {
+        return null
+      }
+    }
+
+    // Remove any trailing partial value that would break parsing.
+    // Truncation often cuts mid-string or mid-number, so strip back to the
+    // last structurally sound position (after a complete value, comma, colon,
+    // or opening bracket/brace).
+    cleaned = cleaned.replace(/,\s*$/, '')                   // trailing comma
+    cleaned = cleaned.replace(/,\s*"[^"]*$/, '')             // trailing key without value
+    cleaned = cleaned.replace(/"[^"]*$/, '"')                // unclosed string — close it
+    cleaned = cleaned.replace(/:\s*"[^"]*$/, ': ""')         // truncated string value
+    cleaned = cleaned.replace(/:\s*$/, ': null')             // colon with no value
+
+    // Count unmatched openers
+    let openBraces = 0
+    let openBrackets = 0
+    let inString = false
+    let escape = false
+
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i]
+      if (escape) { escape = false; continue }
+      if (ch === '\\' && inString) { escape = true; continue }
+      if (ch === '"') { inString = !inString; continue }
+      if (inString) continue
+      if (ch === '{') openBraces++
+      else if (ch === '}') openBraces--
+      else if (ch === '[') openBrackets++
+      else if (ch === ']') openBrackets--
+    }
+
+    // If we're still inside a string, close it
+    if (inString) {
+      cleaned += '"'
+    }
+
+    // Remove any trailing comma before we close structures
+    cleaned = cleaned.replace(/,\s*$/, '')
+
+    // Append closing characters — brackets first (inner), then braces (outer)
+    for (let i = 0; i < openBrackets; i++) cleaned += ']'
+    for (let i = 0; i < openBraces; i++) cleaned += '}'
+
+    const parsed = JSON.parse(cleaned)
+
+    // Validate minimum expected structure
+    const update = parsed.update ?? parsed
+    if (update.contexts && Array.isArray(update.contexts) && update.contexts.length > 0) {
+      return parsed
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 function normalizeUpdate(raw: any, isFirst: boolean): PaneSessionUpdate {
   const update: PaneSessionUpdate = {}
 
+  // ── Canonical shapes ──
+  // Claude can return any of these structures. The system handles all of them
+  // identically — the agent shouldn't have to know which shape we expect.
+  //
+  // Shape A: { contexts: [{ operation, view|patch, ... }] }
+  // Shape B: { patch: { type, panels, ... } }              → wrap as ctx update
+  // Shape C: { view: { layout, panels } }                  → wrap as ctx update
+  // Shape D: { panels: [...] }                             → wrap as view → ctx update
+  // Shape E: { layout, panels }                            → treat as flat view
+
   if (raw.contexts && Array.isArray(raw.contexts)) {
-    update.contexts = raw.contexts.map((ctx: any) => {
-      const base: any = {
-        id: ctx.id ?? 'main',
-        operation: ctx.operation ?? (isFirst ? 'create' : 'update'),
-        label: ctx.label,
-        modality: ctx.modality ?? 'conversational',
-        status: ctx.status,
-      }
-
-      // Handle patch-based mutations
-      if (ctx.patch) {
-        base.patch = {
-          ...ctx.patch,
-          panels: ctx.patch.panels ? ctx.patch.panels.map(normalizePanel) : undefined,
-        }
-      }
-
-      // Handle full view
-      if (ctx.view) {
-        base.view = normalizeView(ctx.view)
-      }
-
-      return base
-    })
+    update.contexts = raw.contexts.map((ctx: any) => normalizeContextUpdate(ctx, isFirst))
+  } else if (raw.patch) {
+    // Top-level patch — wrap as context update
+    update.contexts = [{
+      id: raw.id ?? 'main',
+      operation: 'update' as const,
+      patch: normalizePatch(raw.patch),
+    }]
+  } else if (raw.view) {
+    // Top-level view — wrap as context update
+    update.contexts = [{
+      id: raw.id ?? 'main',
+      operation: isFirst ? ('create' as const) : ('update' as const),
+      label: raw.label,
+      modality: raw.modality ?? 'informational',
+      view: normalizeView(raw.view),
+    }]
+  } else if (Array.isArray(raw.panels)) {
+    // Loose panels array (with or without layout)
+    update.contexts = [{
+      id: raw.id ?? 'main',
+      operation: isFirst ? ('create' as const) : ('update' as const),
+      view: normalizeView({ layout: raw.layout ?? { pattern: 'stack' }, panels: raw.panels }),
+    }]
   }
 
   if (raw.actions) update.actions = raw.actions
@@ -569,6 +960,26 @@ function normalizeUpdate(raw: any, isFirst: boolean): PaneSessionUpdate {
   }
 
   return update
+}
+
+function normalizeContextUpdate(ctx: any, isFirst: boolean): any {
+  const base: any = {
+    id: ctx.id ?? 'main',
+    operation: ctx.operation ?? (isFirst ? 'create' : 'update'),
+    label: ctx.label,
+    modality: ctx.modality ?? 'conversational',
+    status: ctx.status,
+  }
+  if (ctx.patch) base.patch = normalizePatch(ctx.patch)
+  if (ctx.view) base.view = normalizeView(ctx.view)
+  return base
+}
+
+function normalizePatch(patch: any): any {
+  return {
+    ...patch,
+    panels: patch.panels ? patch.panels.map(normalizePanel) : undefined,
+  }
 }
 
 function normalizeView(view: any): any {
@@ -686,14 +1097,21 @@ const SECTION_PROMPT = `You are composing ONE section of a larger Pane view. Gen
 
 You have the same atoms, recipes, and design rules as the full system. But you are generating a FRAGMENT, not a complete view.
 
+## Hard Section Constraints
+- MAX 5 top-level panels in this section. If you need more, use a single container box with children.
+- Keep nesting reasonable (≤4 levels). Use recipes (data-table, key-value, alert) instead of hand-built atom trees for tabular and structured data.
+- Total response under 1500 tokens. This is ONE section of a larger view, not a full dashboard.
+- Prefer recipes (metric, card, data-table, key-value, alert) over hand-built atom trees — they're shorter and render better.
+- Do NOT replicate the entire view here. Other sections handle their own content.
+
 Respond with JSON:
 {
   "panels": [ ...array of PanePanel objects... ]
 }
 
-Every panel must have "id", "atom", "props", "source": "claude". Use children for nesting. Use recipes where appropriate. Follow all design rules (dark theme, monospace labels, sharp corners, compact spacing).
+Every panel must have "id", "atom", "props", "source": "claude". Use children for nesting. Follow all design rules (dark theme, monospace labels, sharp corners, compact spacing).
 
-Do NOT wrap in a context or view — just the panels array.`
+Do NOT wrap in a context or view — just the panels array. Keep it tight.`
 
 /**
  * Creates a plan call function for the decomposer.
@@ -715,7 +1133,7 @@ export function createClaudePlanCall(config: ClaudeConnectorConfig) {
       headers,
       body: JSON.stringify({
         model: config.model ?? 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: MAX_OUTPUT_TOKENS_SHORT,
         system: PLAN_PROMPT,
         messages: [{ role: 'user', content: `User request: "${userRequest}"\n\nDecompose this into sections.` }],
       }),
@@ -748,8 +1166,8 @@ export function createClaudeSectionCall(config: ClaudeConnectorConfig) {
       headers,
       body: JSON.stringify({
         model: config.model ?? 'claude-sonnet-4-6',
-        max_tokens: config.maxTokens ?? 4096,
-        system: SECTION_PROMPT + '\n\n' + DEFAULT_SYSTEM_PROMPT.substring(0, 3000), // include design rules
+        max_tokens: MAX_OUTPUT_TOKENS_SECTION,
+        system: SECTION_PROMPT + '\n\n' + DEFAULT_SYSTEM_PROMPT.substring(0, SECTION_SYSTEM_PROMPT_MAX_CHARS), // include design rules
         messages: [{
           role: 'user',
           content: `View context: ${context}\n\nGenerate the "${section.label}" section:\n${section.description}\n\nSection ID prefix: ${section.id}\nPosition: ${section.position}`,
@@ -827,7 +1245,7 @@ Respond ONLY with JSON.`
       headers,
       body: JSON.stringify({
         model: config.model ?? 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: MAX_OUTPUT_TOKENS_SHORT,
         system: reviewPrompt,
         messages: [{ role: 'user', content: `Review this Pane view spec:\n${specSummary}` }],
       }),

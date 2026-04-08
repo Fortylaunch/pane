@@ -15,6 +15,7 @@ import type {
   PaneTrackedAction,
 } from '../spec/types.js'
 import { emitTelemetry } from '../telemetry/index.js'
+import { MAX_VISUAL_CORRECTIONS, CAPTURE_DELAY_VISUAL_FEEDBACK, MAX_OUTPUT_TOKENS_VISUAL_EVAL } from '../limits.js'
 
 export interface VisualFeedbackConfig {
   // The inner agent to wrap
@@ -41,8 +42,8 @@ export function visualFeedbackAgent(config: VisualFeedbackConfig): PaneAgent & {
     agent,
     captureScreen,
     evaluateVisual,
-    maxCorrections = 1,
-    captureDelay = 800,
+    maxCorrections = MAX_VISUAL_CORRECTIONS,
+    captureDelay = CAPTURE_DELAY_VISUAL_FEEDBACK,
   } = config
 
   let enabled = config.enabled ?? true
@@ -100,7 +101,7 @@ export function visualFeedbackAgent(config: VisualFeedbackConfig): PaneAgent & {
       const update = await agent.init(input)
       return withVisualFeedback(update, {
         id: '', version: 0, activeContext: '',
-        contexts: [], conversation: [], actions: [],
+        contexts: [], operations: [], conversation: [], actions: [],
         agents: [], artifacts: [], feedback: [],
       })
     },
@@ -155,7 +156,7 @@ export function createClaudeVisualEvaluator(config: ClaudeVisualEvalConfig) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
-        max_tokens: 2048,
+        max_tokens: MAX_OUTPUT_TOKENS_VISUAL_EVAL,
         system: `You are a visual quality evaluator for a dynamic workspace called Pane. You apply six design voices: Tufte (data-ink ratio), Cooper (goal-directed), Ive (inevitability), Norman (usability), Yablonski (cognitive law), Van Cleef (context/experience).
 
 You will receive a screenshot of the current rendered surface. Evaluate it against:

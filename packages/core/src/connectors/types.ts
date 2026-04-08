@@ -54,4 +54,7 @@ export interface ClaudeConnectorConfig {
   maxTokens?: number        // default: 4096
   stream?: boolean          // enable streaming responses (default: true)
   onStreamChunk?: (text: string, accumulated: string) => void  // callback for each chunk
+  // Phase 2: progressive panel rendering
+  onStreamPanel?: (panel: any, ctxHint: { id?: string; label?: string; modality?: string; layout?: string }) => void
+  onStreamLayout?: (layout: { pattern: string; label?: string; modality?: string }) => void
 }

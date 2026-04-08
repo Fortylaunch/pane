@@ -91,9 +91,44 @@ registerRecipe('card', (panel) => ({
 
 // ── Data Table ──
 // Props: columns (string[]), rows (string[][])
+// Uses a single CSS Grid so all cells share the same column tracks — no alignment drift.
 registerRecipe('data-table', (panel) => {
   const columns = (panel.props.columns ?? []) as string[]
   const rows = (panel.props.rows ?? []) as string[][]
+  const colCount = columns.length
+
+  // Header cells
+  const headerCells = columns.map((col, i) => ({
+    id: `${panel.id}-h-${i}`,
+    atom: 'text' as const,
+    props: {
+      content: col,
+      level: 'label',
+      style: {
+        padding: '10px 14px',
+        background: 'var(--pane-color-surface-raised)',
+        borderBottom: '1px solid var(--pane-color-border)',
+      },
+    },
+    source: panel.source,
+  }))
+
+  // Data cells — flat list, grid handles row wrapping via column count
+  const dataCells = rows.flatMap((row, ri) =>
+    row.map((cell, ci) => ({
+      id: `${panel.id}-r${ri}-c${ci}`,
+      atom: 'text' as const,
+      props: {
+        content: cell,
+        level: 'body',
+        style: {
+          padding: '10px 14px',
+          borderBottom: ri < rows.length - 1 ? '1px solid var(--pane-color-border)' : 'none',
+        },
+      },
+      source: panel.source,
+    }))
+  )
 
   return {
     ...panel,
@@ -104,47 +139,10 @@ registerRecipe('data-table', (panel) => {
       borderColor: 'var(--pane-color-border)',
       padding: '0',
       gap: '0',
+      gridColumns: `repeat(${colCount}, 1fr)`,
       style: { overflow: 'auto' },
     },
-    children: [
-      // Header row
-      {
-        id: `${panel.id}-header`,
-        atom: 'box' as const,
-        props: {
-          direction: 'row',
-          gap: '0',
-          padding: '0',
-          background: 'var(--pane-color-surface-raised)',
-          style: { borderBottom: '1px solid var(--pane-color-border)' },
-        },
-        source: panel.source,
-        children: columns.map((col, i) => ({
-          id: `${panel.id}-h-${i}`,
-          atom: 'text' as const,
-          props: { content: col, level: 'label', style: { padding: '10px 14px', flex: '1', minWidth: '100px' } },
-          source: panel.source,
-        })),
-      },
-      // Data rows
-      ...rows.map((row, ri) => ({
-        id: `${panel.id}-r-${ri}`,
-        atom: 'box' as const,
-        props: {
-          direction: 'row',
-          gap: '0',
-          padding: '0',
-          style: { borderBottom: ri < rows.length - 1 ? '1px solid var(--pane-color-border)' : 'none' },
-        },
-        source: panel.source,
-        children: row.map((cell, ci) => ({
-          id: `${panel.id}-r${ri}-c${ci}`,
-          atom: 'text' as const,
-          props: { content: cell, level: 'body', style: { padding: '10px 14px', flex: '1', minWidth: '100px' } },
-          source: panel.source,
-        })),
-      })),
-    ],
+    children: [...headerCells, ...dataCells],
   }
 })
 

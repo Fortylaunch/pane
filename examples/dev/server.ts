@@ -51,6 +51,12 @@ const server = createServer(async (req, res) => {
       const parsed = JSON.parse(body)
       const isStreaming = parsed.stream === true
 
+      // Log request size for debugging context budget
+      const systemLen = typeof parsed.system === 'string' ? parsed.system.length : JSON.stringify(parsed.system ?? '').length
+      const msgLen = JSON.stringify(parsed.messages ?? []).length
+      const totalKB = Math.round(body.length / 1024)
+      console.log(`[proxy] ${parsed.model} | system: ${Math.round(systemLen/1024)}KB | messages: ${Math.round(msgLen/1024)}KB | total: ${totalKB}KB | stream: ${isStreaming}`)
+
       const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -86,14 +92,28 @@ const server = createServer(async (req, res) => {
         res.end(data)
       }
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: String(err) }))
+      console.error('[proxy] Error:', String(err))
+      try {
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+        }
+        if (!res.writableEnded) {
+          res.end(JSON.stringify({ error: String(err) }))
+        }
+      } catch {
+        // Response stream already destroyed (client disconnected)
+      }
     }
     return
   }
 
   res.writeHead(404)
   res.end('Not found')
+})
+
+// Prevent crashes from killing the proxy
+process.on('uncaughtException', (err) => {
+  console.error('[proxy] Uncaught exception (staying up):', err.message)
 })
 
 server.listen(PORT, () => {

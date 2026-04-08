@@ -179,6 +179,29 @@ export interface PaneTrackedAction {
   duration?: number          // ms — always populated on completion
 }
 
+// ── Operations ──
+
+export type OperationType =
+  | 'api-call'
+  | 'spec-eval'
+  | 'visual-eval'
+  | 'design-review'
+  | 'decompose'
+  | 'layout-plan'
+
+export type OperationStatus = 'running' | 'complete' | 'error' | 'timeout'
+
+export interface PaneOperation {
+  id: string
+  type: OperationType
+  status: OperationStatus
+  message: string              // user-facing label: "Generating view...", "Evaluating design..."
+  startedAt: number
+  deadline: number             // absolute timestamp — flip to 'timeout' if exceeded
+  completedAt?: number
+  error?: string               // error message when status is 'error' or 'timeout'
+}
+
 // ── Observability ──
 
 export type AgentState = 'idle' | 'working' | 'waiting' | 'error'
@@ -280,6 +303,7 @@ export interface PaneSession {
   version: number
   activeContext: string
   contexts: PaneContext[]
+  operations: PaneOperation[]
   lastMutation?: {
     type: MutationType
     affectedPanelIds: string[]

@@ -13,12 +13,34 @@ const params = new URLSearchParams(window.location.search)
 const agentParam = params.get('agent')
 const useStarter = agentParam === 'starter'
 
+// Phase 2: deferred reference to the runtime so the connector callbacks
+// can call streamLayout/streamPanel as panels arrive from the SSE stream.
+// `pane` is constructed below — these callbacks fire after that.
+let runtimeRef: any = null
+let panelArrivalCount = 0
+
 const agent = useStarter
   ? starterAgent
   : claudeAgent({
       proxyUrl: 'http://localhost:3001/api/claude',
       model: 'claude-sonnet-4-6',
       maxTokens: 16384,
+      onStreamChunk: (_chunk, accumulated) => {
+        // Update the status strip with streaming progress
+        const kb = (accumulated.length / 1024).toFixed(1)
+        console.log(`[stream] ${kb}KB received`)
+      },
+      // Phase 2: progressive rendering hooks
+      onStreamLayout: (layout) => {
+        panelArrivalCount = 0
+        console.log(`[stream] ⚡ layout ready: ${layout.pattern}`)
+        runtimeRef?.streamLayout(layout)
+      },
+      onStreamPanel: (panel) => {
+        panelArrivalCount++
+        console.log(`[stream] ⚡ panel ${panelArrivalCount}: ${panel.id} (${panel.atom})`)
+        runtimeRef?.streamPanel(panel)
+      },
     })
 
 // Visual eval — runs AFTER render, captures what the user actually sees
@@ -30,7 +52,7 @@ const visualEvaluator = useStarter ? undefined : createClaudeVisualEvaluator({
 const claudeConfig = {
   proxyUrl: 'http://localhost:3001/api/claude',
   model: 'claude-sonnet-4-6' as const,
-  maxTokens: 16384,
+  maxTokens: 8192,
 }
 
 const pane = createPane({
@@ -55,6 +77,9 @@ const pane = createPane({
     enabled: false,  // Toggle via UI — default off
   } : undefined,
 })
+
+// Phase 2: bind the runtime ref so connector callbacks can find it
+runtimeRef = pane
 
 // Expose runtime for visual eval script
 ;(window as any).__paneRuntime = pane

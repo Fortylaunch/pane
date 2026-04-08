@@ -7,9 +7,10 @@
 
 import type { PaneAgent, PaneInput, PaneSession, PaneSessionUpdate, PaneTrackedAction } from '../spec/types.js'
 import type { HttpConnectorConfig, PaneRequest, PaneResponse } from './types.js'
+import { TIMEOUT_HTTP_REQUEST } from '../limits.js'
 
 export function httpAgent(config: HttpConnectorConfig): PaneAgent {
-  const { url, headers = {}, timeout = 30000 } = config
+  const { url, headers = {}, timeout = TIMEOUT_HTTP_REQUEST } = config
 
   async function send(type: PaneRequest['type'], session: PaneSession, input?: PaneInput): Promise<PaneSessionUpdate> {
     const request: PaneRequest = {
@@ -43,7 +44,7 @@ export function httpAgent(config: HttpConnectorConfig): PaneAgent {
 
   const emptySession: PaneSession = {
     id: '', version: 0, activeContext: '',
-    contexts: [], conversation: [], actions: [],
+    contexts: [], operations: [], conversation: [], actions: [],
     agents: [], artifacts: [], feedback: [],
   }
 

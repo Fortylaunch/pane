@@ -17,6 +17,10 @@ export { Spacer } from './atoms/Spacer.js'
 // Recipes
 export { registerRecipe, expandRecipe, hasRecipe, listRecipes } from './recipes/index.js'
 
+// Status
+export { StatusStrip } from './StatusStrip.js'
+export { ActionBar } from './ActionBar.js'
+
 // Telemetry
 export { TelemetryDrawer } from './TelemetryDrawer.js'
 

@@ -1,5 +1,7 @@
-import { type CSSProperties, type ReactNode, useState } from 'react'
+import { type CSSProperties, type ReactNode, useCallback, useState } from 'react'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 import { motion } from 'motion/react'
+import { isLightColor } from './contrast.js'
 
 interface BoxProps {
   children?: ReactNode
@@ -13,12 +15,14 @@ interface BoxProps {
   direction?: 'row' | 'column'
   wrap?: boolean             // flex-wrap (default: true for row direction)
   minChildWidth?: string     // min-width per child, e.g. "180px"
+  gridColumns?: string       // explicit grid-template-columns, e.g. "repeat(3, 1fr)"
   align?: string
   justify?: string
   flex?: string
   interactive?: boolean
   glass?: boolean
   fill?: boolean
+  animate?: boolean
   className?: string
   [key: string]: unknown
 }
@@ -35,16 +39,29 @@ export function Box({
   direction = 'column',
   wrap,
   minChildWidth,
+  gridColumns,
   align,
   justify,
   flex,
   interactive = false,
   glass = false,
   fill = false,
+  animate = true,
   className,
   ...rest
 }: BoxProps) {
   const [hovered, setHovered] = useState(false)
+  const [autoAnimateRef] = useAutoAnimate({ duration: 150 })
+
+  // Merge auto-animate ref with motion.div's ref
+  const mergedRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (animate && children) {
+        autoAnimateRef(node)
+      }
+    },
+    [animate, children, autoAnimateRef],
+  )
 
   const hasBorder = border || borderColor || background || glass
 
@@ -72,11 +89,14 @@ export function Box({
   // Row direction defaults to flex-wrap to prevent child compression
   const shouldWrap = wrap ?? (direction === 'row')
 
-  // If minChildWidth is set on a row, use CSS grid auto-fill for guaranteed minimum sizing
-  const useGrid = !!minChildWidth && direction === 'row'
+  // Grid layout: explicit columns take precedence, then auto-fill via minChildWidth
+  const useGrid = !!gridColumns || (!!minChildWidth && direction === 'row')
 
   const layoutStyles: CSSProperties = useGrid
-    ? { display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${minChildWidth}, 1fr))` }
+    ? {
+        display: 'grid',
+        gridTemplateColumns: gridColumns ?? `repeat(auto-fill, minmax(${minChildWidth}, 1fr))`,
+      }
     : { display: 'flex', flexDirection: direction, flexWrap: shouldWrap ? 'wrap' : 'nowrap' }
 
   const computedStyle: CSSProperties = {
@@ -101,6 +121,7 @@ export function Box({
 
   return (
     <motion.div
+      ref={mergedRef}
       layout
       style={computedStyle}
       className={className}
@@ -110,41 +131,4 @@ export function Box({
       {children}
     </motion.div>
   )
-}
-
-// Detect if a CSS color string is "light" (would need dark text for contrast)
-function isLightColor(color: string): boolean {
-  if (!color) return false
-  // Skip CSS variables — they're from our dark theme
-  if (color.startsWith('var(')) return false
-  if (color === 'transparent' || color === 'inherit') return false
-
-  // Skip translucent rgba backgrounds (glass effects, overlays)
-  const alphaMatch = color.match(/rgba?\([^)]*,\s*([\d.]+)\s*\)/)
-  if (alphaMatch && parseFloat(alphaMatch[1]) <= 0.5) return false
-
-  // Parse hex
-  let hex = color
-  if (hex.startsWith('#')) {
-    if (hex.length === 4) hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
-    const r = parseInt(hex.slice(1, 3), 16)
-    const g = parseInt(hex.slice(3, 5), 16)
-    const b = parseInt(hex.slice(5, 7), 16)
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return luminance > 0.5
-  }
-
-  // Parse rgb/rgba
-  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/)
-  if (rgbMatch) {
-    const r = parseInt(rgbMatch[1])
-    const g = parseInt(rgbMatch[2])
-    const b = parseInt(rgbMatch[3])
-    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return luminance > 0.5
-  }
-
-  // Named colors that are light
-  const lightNames = ['white', 'snow', 'ivory', 'beige', 'linen', 'oldlace', 'lightyellow', 'lightcyan', 'azure', 'mintcream', 'honeydew', 'ghostwhite', 'aliceblue', 'lavenderblush', 'seashell', 'floralwhite', 'whitesmoke', 'lavender', 'lightgoldenrodyellow', 'cornsilk', 'lemonchiffon', 'lightgray', 'lightgrey', 'gainsboro', 'mistyrose', 'antiquewhite', 'papayawhip', 'blanchedalmond', 'bisque', 'peachpuff', 'navajowhite', 'moccasin', 'wheat', 'pink', 'lightpink', 'lightsalmon', 'lightyellow']
-  return lightNames.includes(color.toLowerCase())
 }
